@@ -6,59 +6,62 @@
 
 @layer base {
   :root {
-    /* Core Colors */
-    --color-background: #FAFBFC; /* gray-50 */
-    --color-foreground: #1E293B; /* slate-800 */
-    --color-border: #E2E8F0; /* slate-200 */
-    --color-input: #FFFFFF; /* white */
-    --color-ring: #0EA5E9; /* sky-500 */
-    
+    /* Dark Theme - ScoutGPT Colors */
+    --color-background: #050509; /* near-black */
+    --color-foreground: #E5E7EB; /* gray-200 */
+    --color-border: #1F2937; /* gray-800 */
+    --color-input: #111827; /* gray-900 */
+    --color-ring: #14B8A6; /* teal-500 */
+
     /* Card Colors */
-    --color-card: #FFFFFF; /* white */
-    --color-card-foreground: #1E293B; /* slate-800 */
-    
+    --color-card: #0F172A; /* slate-900 */
+    --color-card-foreground: #E5E7EB; /* gray-200 */
+
     /* Popover Colors */
-    --color-popover: #FFFFFF; /* white */
-    --color-popover-foreground: #1E293B; /* slate-800 */
-    
+    --color-popover: #1F2937; /* gray-800 */
+    --color-popover-foreground: #E5E7EB; /* gray-200 */
+
     /* Muted Colors */
-    --color-muted: #F1F5F9; /* slate-100 */
-    --color-muted-foreground: #64748B; /* slate-500 */
-    
+    --color-muted: #1F2937; /* gray-800 */
+    --color-muted-foreground: #9CA3AF; /* gray-400 */
+
     /* Primary Colors */
-    --color-primary: #1E3A8A; /* blue-800 */
+    --color-primary: #14B8A6; /* teal-500 */
     --color-primary-foreground: #FFFFFF; /* white */
-    
+
     /* Secondary Colors */
-    --color-secondary: #64748B; /* slate-500 */
-    --color-secondary-foreground: #FFFFFF; /* white */
-    
+    --color-secondary: #374151; /* gray-700 */
+    --color-secondary-foreground: #E5E7EB; /* gray-200 */
+
     /* Destructive Colors */
-    --color-destructive: #DC2626; /* red-600 */
+    --color-destructive: #EF4444; /* red-500 */
     --color-destructive-foreground: #FFFFFF; /* white */
-    
+
     /* Accent Colors */
-    --color-accent: #0EA5E9; /* sky-500 */
+    --color-accent: #0EA5E9; /* sky-500 - electric blue */
     --color-accent-foreground: #FFFFFF; /* white */
-    
+
     /* Success Colors */
-    --color-success: #059669; /* emerald-600 */
+    --color-success: #10B981; /* emerald-500 */
     --color-success-foreground: #FFFFFF; /* white */
-    
+
     /* Warning Colors */
-    --color-warning: #D97706; /* amber-600 */
+    --color-warning: #F59E0B; /* amber-500 */
     --color-warning-foreground: #FFFFFF; /* white */
-    
+
     /* Error Colors */
-    --color-error: #DC2626; /* red-600 */
+    --color-error: #EF4444; /* red-500 */
     --color-error-foreground: #FFFFFF; /* white */
-    
+
     /* Surface Color */
-    --color-surface: #FFFFFF; /* white */
-    
+    --color-surface: #111827; /* gray-900 */
+
     /* Text Colors */
-    --color-text-primary: #1E293B; /* slate-800 */
-    --color-text-secondary: #64748B; /* slate-500 */
+    --color-text-primary: #F9FAFB; /* gray-50 */
+    --color-text-secondary: #9CA3AF; /* gray-400 */
+
+    /* Border Radius */
+    --radius: 0.5rem;
   }
 
   * {
