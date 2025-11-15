@@ -171,7 +171,20 @@ const MapView = ({ queryResults }) => {
 
   // Effect to display query results on map
   useEffect(() => {
-    if (!map.current || !mapLoaded || !queryResults) return;
+    console.log('🗺️ MapView received queryResults:', queryResults);
+    console.log('🗺️ Map loaded:', mapLoaded);
+    console.log('🗺️ Map current:', !!map.current);
+
+    if (!map.current || !mapLoaded || !queryResults) {
+      console.log('⚠️ Not rendering results - missing:', {
+        hasMap: !!map.current,
+        mapLoaded,
+        hasQueryResults: !!queryResults
+      });
+      return;
+    }
+
+    console.log('✅ Rendering query results on map!', queryResults.features?.length, 'features');
 
     const SOURCE_ID = 'query-results';
     const LAYER_ID = 'query-results-layer';

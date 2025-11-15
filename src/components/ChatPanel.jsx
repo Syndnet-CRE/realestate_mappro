@@ -40,6 +40,10 @@ const ChatPanel = ({ onQueryResults }) => {
         message: userMessage,
       });
 
+      console.log('📡 Backend response:', response.data);
+      console.log('🗺️ GeoJSON data:', response.data.geojson);
+      console.log('🔧 Tool calls:', response.data.tool_calls);
+
       // Add assistant response
       setMessages((prev) => [
         ...prev,
@@ -51,7 +55,10 @@ const ChatPanel = ({ onQueryResults }) => {
 
       // If response contains GeoJSON data, send it to map
       if (response.data.geojson && onQueryResults) {
+        console.log('✅ Sending GeoJSON to map:', response.data.geojson);
         onQueryResults(response.data.geojson);
+      } else {
+        console.warn('⚠️ No GeoJSON in response or no callback function');
       }
     } catch (err) {
       console.error('Error sending message:', err);
