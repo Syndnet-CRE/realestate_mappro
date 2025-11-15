@@ -187,6 +187,8 @@ def search_poi(query: str, location: str, category: Optional[str] = None) -> Dic
         GeoJSON FeatureCollection with results
     """
 
+    print(f"🔍 search_poi called with query='{query}', location='{location}'")
+
     # Map common queries to OSM tags
     tag_mapping = {
         "coffee": "amenity=cafe",
@@ -235,6 +237,7 @@ def search_poi(query: str, location: str, category: Optional[str] = None) -> Dic
 
     # Query OpenStreetMap
     osm_data = query_overpass(overpass_query)
+    print(f"🌍 OpenStreetMap returned {len(osm_data.get('elements', []))} elements")
 
     # Convert to GeoJSON
     features = []
@@ -265,6 +268,8 @@ def search_poi(query: str, location: str, category: Optional[str] = None) -> Dic
                 "osm_id": element.get("id")
             }
         })
+
+    print(f"✅ Converted to {len(features)} GeoJSON features")
 
     return {
         "type": "FeatureCollection",
@@ -403,13 +408,17 @@ def root():
 async def chat(message: ChatMessage):
     """Send a message to Claude and get a response"""
 
+    print(f"🔵 Received chat request: {message.message}")
+
     if not anthropic:
+        print("❌ ANTHROPIC_API_KEY not configured!")
         raise HTTPException(
             status_code=500,
             detail="Anthropic API key not configured. Please set ANTHROPIC_API_KEY environment variable."
         )
 
     try:
+        print(f"🟢 Calling Claude API...")
         # First call to Claude with tools
         response = anthropic.messages.create(
             model="claude-3-5-sonnet-20241022",
@@ -420,6 +429,8 @@ async def chat(message: ChatMessage):
                 "content": message.message
             }]
         )
+
+        print(f"🟢 Claude responded, stop_reason: {response.stop_reason}")
 
         # Check if Claude wants to use a tool
         tool_calls = []
@@ -435,8 +446,12 @@ async def chat(message: ChatMessage):
             if not tool_use:
                 break
 
+            print(f"🔧 Claude wants to use tool: {tool_use.name}")
+            print(f"🔧 Tool input: {tool_use.input}")
+
             # Execute the tool
             tool_result = execute_tool(tool_use.name, tool_use.input)
+            print(f"✅ Tool result: {len(str(tool_result))} chars")
             tool_calls.append({
                 "name": tool_use.name,
                 "input": tool_use.input,
@@ -447,6 +462,7 @@ async def chat(message: ChatMessage):
             if "geojson" in tool_result:
                 geojson = tool_result["geojson"]
                 if "features" in geojson:
+                    print(f"📍 Found {len(geojson['features'])} GeoJSON features")
                     all_geojson_features.extend(geojson["features"])
 
             # Continue the conversation with the tool result
@@ -481,6 +497,11 @@ async def chat(message: ChatMessage):
                 "type": "FeatureCollection",
                 "features": all_geojson_features
             }
+            print(f"🗺️ Returning {len(all_geojson_features)} total features in GeoJSON")
+        else:
+            print(f"⚠️ No GeoJSON features to return")
+
+        print(f"✅ Returning response to frontend")
 
         return ChatResponse(
             reply=text_response,
@@ -489,6 +510,10 @@ async def chat(message: ChatMessage):
         )
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ ERROR in chat endpoint:")
+        print(error_details)
         raise HTTPException(status_code=500, detail=f"Error communicating with Claude: {str(e)}")
 
 
