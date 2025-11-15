@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from anthropic import Anthropic
 import os
+import requests
 from typing import Optional, List, Dict, Any
 
 app = FastAPI(
@@ -37,6 +38,24 @@ else:
 
 # Define tools that Claude can use
 CLAUDE_TOOLS = [
+    {
+        "name": "search_places",
+        "description": "Search for any type of place, business, or point of interest using OpenStreetMap data. Use this to find restaurants, cafes, parks, shops, hotels, schools, hospitals, etc. Returns real location data with coordinates that can be displayed on a map.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "What to search for (e.g., 'coffee shops', 'restaurants', 'parks', 'hotels', 'pharmacies')"
+                },
+                "location": {
+                    "type": "string",
+                    "description": "City or area to search in (e.g., 'San Francisco', 'Oakland', 'Berkeley')"
+                }
+            },
+            "required": ["query", "location"]
+        }
+    },
     {
         "name": "search_properties",
         "description": "Search for properties by location, type, price range, or other criteria",
@@ -137,44 +156,170 @@ class ChatMessage(BaseModel):
 class ChatResponse(BaseModel):
     reply: str
     tool_calls: Optional[List[Dict[str, Any]]] = None
+    geojson: Optional[Dict[str, Any]] = None  # GeoJSON data to display on map
+
+
+# Real Data Source Integrations
+
+def query_overpass(query: str) -> Dict[str, Any]:
+    """Query OpenStreetMap Overpass API for real geospatial data"""
+    overpass_url = "https://overpass-api.de/api/interpreter"
+
+    try:
+        response = requests.post(overpass_url, data={"data": query}, timeout=30)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        print(f"Overpass API error: {e}")
+        return {"elements": []}
+
+
+def search_poi(query: str, location: str, category: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Search for points of interest using OpenStreetMap
+
+    Args:
+        query: Search term (e.g., "coffee shop", "restaurant", "park")
+        location: City or area name (e.g., "San Francisco")
+        category: Optional category filter
+
+    Returns:
+        GeoJSON FeatureCollection with results
+    """
+
+    # Map common queries to OSM tags
+    tag_mapping = {
+        "coffee": "amenity=cafe",
+        "cafe": "amenity=cafe",
+        "restaurant": "amenity=restaurant",
+        "park": "leisure=park",
+        "shop": "shop",
+        "hotel": "tourism=hotel",
+        "bar": "amenity=bar",
+        "school": "amenity=school",
+        "hospital": "amenity=hospital",
+        "pharmacy": "amenity=pharmacy",
+    }
+
+    # Determine the OSM tag to use
+    osm_tag = None
+    for key, value in tag_mapping.items():
+        if key in query.lower():
+            osm_tag = value
+            break
+
+    if not osm_tag:
+        osm_tag = "amenity"  # Default fallback
+
+    # Geocode the location (simplified - using San Francisco as default)
+    # In production, you'd use a geocoding service
+    location_coords = {
+        "san francisco": {"south": 37.7, "north": 37.8, "west": -122.5, "east": -122.35},
+        "sf": {"south": 37.7, "north": 37.8, "west": -122.5, "east": -122.35},
+        "oakland": {"south": 37.75, "north": 37.85, "west": -122.3, "east": -122.15},
+        "berkeley": {"south": 37.85, "north": 37.9, "west": -122.3, "east": -122.25},
+    }
+
+    bbox = location_coords.get(location.lower(), location_coords["san francisco"])
+
+    # Build Overpass query
+    overpass_query = f"""
+    [out:json][timeout:25];
+    (
+      node[{osm_tag}]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
+      way[{osm_tag}]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
+      relation[{osm_tag}]({bbox['south']},{bbox['west']},{bbox['north']},{bbox['east']});
+    );
+    out center;
+    """
+
+    # Query OpenStreetMap
+    osm_data = query_overpass(overpass_query)
+
+    # Convert to GeoJSON
+    features = []
+    for element in osm_data.get("elements", [])[:50]:  # Limit to 50 results
+        if element.get("type") == "node":
+            lat = element.get("lat")
+            lon = element.get("lon")
+        elif "center" in element:
+            lat = element["center"]["lat"]
+            lon = element["center"]["lon"]
+        else:
+            continue
+
+        tags = element.get("tags", {})
+        name = tags.get("name", "Unnamed")
+
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [lon, lat]
+            },
+            "properties": {
+                "name": name,
+                "type": tags.get("amenity") or tags.get("shop") or tags.get("leisure", "unknown"),
+                "address": tags.get("addr:street", ""),
+                "city": tags.get("addr:city", location),
+                "osm_id": element.get("id")
+            }
+        })
+
+    return {
+        "type": "FeatureCollection",
+        "features": features,
+        "metadata": {
+            "count": len(features),
+            "query": query,
+            "location": location
+        }
+    }
 
 
 # Tool execution functions
 def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
     """Execute a tool and return results"""
 
-    if tool_name == "search_properties":
-        # Mock property search results
-        location = tool_input.get("location", "unknown")
+    if tool_name == "search_places":
+        # Search for any type of place using OpenStreetMap
+        query = tool_input.get("query", "")
+        location = tool_input.get("location", "San Francisco")
+
+        # Query real data from OpenStreetMap
+        geojson_data = search_poi(query, location)
+
         return {
-            "results": [
-                {
-                    "address": f"123 Main St, {location}",
-                    "price": 650000,
-                    "type": "residential",
-                    "beds": 3,
-                    "baths": 2,
-                    "sqft": 1800,
-                    "zoning": "R-2"
-                },
-                {
-                    "address": f"456 Oak Ave, {location}",
-                    "price": 1200000,
-                    "type": "commercial",
-                    "sqft": 5000,
-                    "zoning": "C-1"
-                },
-                {
-                    "address": f"789 Pine Rd, {location}",
-                    "price": 425000,
-                    "type": "residential",
-                    "beds": 2,
-                    "baths": 1,
-                    "sqft": 1200,
-                    "zoning": "R-1"
-                }
-            ],
-            "total_found": 3
+            "geojson": geojson_data,
+            "total_found": geojson_data["metadata"]["count"],
+            "query": query,
+            "location": location
+        }
+
+    elif tool_name == "search_properties":
+        # Use OpenStreetMap to search for real places
+        location = tool_input.get("location", "San Francisco")
+        property_type = tool_input.get("property_type", "")
+
+        # Determine what to search for based on property type
+        if "commercial" in property_type.lower():
+            search_query = "shop"
+        elif "restaurant" in property_type.lower() or "cafe" in property_type.lower():
+            search_query = "restaurant cafe"
+        elif "hotel" in property_type.lower():
+            search_query = "hotel"
+        else:
+            # Default: search for buildings/amenities
+            search_query = "amenity"
+
+        # Query real data from OpenStreetMap
+        geojson_data = search_poi(search_query, location)
+
+        return {
+            "geojson": geojson_data,
+            "total_found": geojson_data["metadata"]["count"],
+            "location": location,
+            "type": property_type or "all"
         }
 
     elif tool_name == "analyze_zoning":
@@ -278,6 +423,8 @@ async def chat(message: ChatMessage):
 
         # Check if Claude wants to use a tool
         tool_calls = []
+        all_geojson_features = []  # Collect all GeoJSON features from tools
+
         while response.stop_reason == "tool_use":
             # Extract tool use
             tool_use = next(
@@ -295,6 +442,12 @@ async def chat(message: ChatMessage):
                 "input": tool_use.input,
                 "result": tool_result
             })
+
+            # Extract GeoJSON data if present
+            if "geojson" in tool_result:
+                geojson = tool_result["geojson"]
+                if "features" in geojson:
+                    all_geojson_features.extend(geojson["features"])
 
             # Continue the conversation with the tool result
             response = anthropic.messages.create(
@@ -321,9 +474,18 @@ async def chat(message: ChatMessage):
             "I apologize, but I couldn't generate a response."
         )
 
+        # Build combined GeoJSON if we have features
+        combined_geojson = None
+        if all_geojson_features:
+            combined_geojson = {
+                "type": "FeatureCollection",
+                "features": all_geojson_features
+            }
+
         return ChatResponse(
             reply=text_response,
-            tool_calls=tool_calls if tool_calls else None
+            tool_calls=tool_calls if tool_calls else None,
+            geojson=combined_geojson
         )
 
     except Exception as e:
