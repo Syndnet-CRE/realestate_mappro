@@ -390,6 +390,82 @@ def get_layers():
     ]
 
 
+@app.get("/layers/{layer_name}/features")
+def get_layer_features(layer_name: str):
+    """Return GeoJSON features for a layer"""
+
+    # Demo GeoJSON data - San Francisco properties
+    if layer_name == "parcels" or layer_name == "1":
+        return {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-122.4194, 37.7749],
+                            [-122.4194, 37.7739],
+                            [-122.4184, 37.7739],
+                            [-122.4184, 37.7749],
+                            [-122.4194, 37.7749]
+                        ]]
+                    },
+                    "properties": {
+                        "name": "123 Market St",
+                        "price": "$1,200,000",
+                        "type": "Commercial",
+                        "sqft": 5000
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-122.4214, 37.7759],
+                            [-122.4214, 37.7749],
+                            [-122.4204, 37.7749],
+                            [-122.4204, 37.7759],
+                            [-122.4214, 37.7759]
+                        ]]
+                    },
+                    "properties": {
+                        "name": "456 Mission St",
+                        "price": "$850,000",
+                        "type": "Residential",
+                        "sqft": 2400
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-122.4164, 37.7769],
+                            [-122.4164, 37.7759],
+                            [-122.4154, 37.7759],
+                            [-122.4154, 37.7769],
+                            [-122.4164, 37.7769]
+                        ]]
+                    },
+                    "properties": {
+                        "name": "789 Howard St",
+                        "price": "$2,500,000",
+                        "type": "Mixed Use",
+                        "sqft": 12000
+                    }
+                }
+            ]
+        }
+
+    # Default empty response
+    return {
+        "type": "FeatureCollection",
+        "features": []
+    }
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint"""
