@@ -4,7 +4,7 @@ import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-const ChatPanel = () => {
+const ChatPanel = ({ onQueryResults }) => {
   const [messages, setMessages] = useState([
     {
       role: 'assistant',
@@ -48,6 +48,11 @@ const ChatPanel = () => {
           content: response.data.reply || response.data.message || 'No response received',
         },
       ]);
+
+      // If response contains GeoJSON data, send it to map
+      if (response.data.geojson && onQueryResults) {
+        onQueryResults(response.data.geojson);
+      }
     } catch (err) {
       console.error('Error sending message:', err);
 

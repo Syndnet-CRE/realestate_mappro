@@ -1,10 +1,16 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import Sidebar from '../../components/Sidebar';
 import MapView from '../../components/MapView';
 import ChatPanel from '../../components/ChatPanel';
 
 const InteractivePropertyMapDashboard = () => {
+  const [queryResults, setQueryResults] = useState(null);
+
+  const handleQueryResults = (geojson) => {
+    setQueryResults(geojson);
+  };
+
   return (
     <>
       <Helmet>
@@ -19,11 +25,11 @@ const InteractivePropertyMapDashboard = () => {
 
         {/* Center Map - Flexes to fill space */}
         <div className="flex-1 relative">
-          <MapView />
+          <MapView queryResults={queryResults} />
         </div>
 
         {/* Right Chat Panel - Fixed width */}
-        <ChatPanel />
+        <ChatPanel onQueryResults={handleQueryResults} />
       </div>
     </>
   );

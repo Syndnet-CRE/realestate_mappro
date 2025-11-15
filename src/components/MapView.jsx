@@ -6,11 +6,12 @@ import axios from 'axios';
 const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-const MapView = () => {
+const MapView = ({ queryResults }) => {
   const mapContainer = useRef(null);
   const map = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
   const [layers, setLayers] = useState([]);
+  const [resultCount, setResultCount] = useState(0);
 
   useEffect(() => {
     if (!MAPBOX_TOKEN || MAPBOX_TOKEN === 'your-mapbox-token-here') {
@@ -168,6 +169,115 @@ const MapView = () => {
     }
   };
 
+  // Effect to display query results on map
+  useEffect(() => {
+    if (!map.current || !mapLoaded || !queryResults) return;
+
+    const SOURCE_ID = 'query-results';
+    const LAYER_ID = 'query-results-layer';
+    const LAYER_LABEL_ID = 'query-results-labels';
+
+    // Remove existing layers and source
+    if (map.current.getLayer(LAYER_LABEL_ID)) {
+      map.current.removeLayer(LAYER_LABEL_ID);
+    }
+    if (map.current.getLayer(LAYER_ID)) {
+      map.current.removeLayer(LAYER_ID);
+    }
+    if (map.current.getSource(SOURCE_ID)) {
+      map.current.removeSource(SOURCE_ID);
+    }
+
+    // Add new source with query results
+    map.current.addSource(SOURCE_ID, {
+      type: 'geojson',
+      data: queryResults
+    });
+
+    // Add circle layer for points
+    map.current.addLayer({
+      id: LAYER_ID,
+      type: 'circle',
+      source: SOURCE_ID,
+      paint: {
+        'circle-radius': 8,
+        'circle-color': '#14b8a6', // teal
+        'circle-stroke-width': 2,
+        'circle-stroke-color': '#fff'
+      }
+    });
+
+    // Add labels layer
+    map.current.addLayer({
+      id: LAYER_LABEL_ID,
+      type: 'symbol',
+      source: SOURCE_ID,
+      layout: {
+        'text-field': ['get', 'name'],
+        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+        'text-offset': [0, 1.5],
+        'text-anchor': 'top',
+        'text-size': 12
+      },
+      paint: {
+        'text-color': '#ffffff',
+        'text-halo-color': '#000000',
+        'text-halo-width': 1
+      }
+    });
+
+    // Fit map to show all results
+    if (queryResults.features && queryResults.features.length > 0) {
+      const bounds = new mapboxgl.LngLatBounds();
+      queryResults.features.forEach(feature => {
+        if (feature.geometry.type === 'Point') {
+          bounds.extend(feature.geometry.coordinates);
+        }
+      });
+
+      map.current.fitBounds(bounds, {
+        padding: 50,
+        maxZoom: 15,
+        duration: 1000
+      });
+
+      setResultCount(queryResults.features.length);
+    }
+
+    // Add click handler for popups
+    map.current.on('click', LAYER_ID, (e) => {
+      const features = map.current.queryRenderedFeatures(e.point, {
+        layers: [LAYER_ID]
+      });
+
+      if (!features.length) return;
+
+      const feature = features[0];
+      const props = feature.properties;
+
+      new mapboxgl.Popup()
+        .setLngLat(feature.geometry.coordinates)
+        .setHTML(`
+          <div class="p-2">
+            <h3 class="font-semibold text-gray-900">${props.name || 'Unnamed'}</h3>
+            <p class="text-sm text-gray-600">${props.type || ''}</p>
+            ${props.address ? `<p class="text-sm text-gray-600">${props.address}</p>` : ''}
+          </div>
+        `)
+        .addTo(map.current);
+    });
+
+    // Change cursor on hover
+    map.current.on('mouseenter', LAYER_ID, () => {
+      map.current.getCanvas().style.cursor = 'pointer';
+    });
+
+    map.current.on('mouseleave', LAYER_ID, () => {
+      map.current.getCanvas().style.cursor = '';
+    });
+
+  }, [queryResults, mapLoaded]);
+
   return (
     <div className="relative w-full h-full">
       <div ref={mapContainer} className="w-full h-full" />
@@ -188,7 +298,11 @@ const MapView = () => {
       {mapLoaded && (
         <div className="absolute top-4 left-4 bg-gray-900/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-gray-700">
           <div className="text-xs text-gray-400">
-            {layers.length} layer{layers.length !== 1 ? 's' : ''} loaded
+            {resultCount > 0 ? (
+              <span className="text-teal-400 font-semibold">{resultCount} results found</span>
+            ) : (
+              <span>{layers.length} layer{layers.length !== 1 ? 's' : ''} loaded</span>
+            )}
           </div>
         </div>
       )}
