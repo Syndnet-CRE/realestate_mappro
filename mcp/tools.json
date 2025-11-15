@@ -1,0 +1,143 @@
+{
+  "tools": [
+    {
+      "name": "list_datasets",
+      "description": "List all available datasets in the ScoutGPT system",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of datasets to return",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "get_dataset_details",
+      "description": "Get detailed information about a specific dataset",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "integer",
+            "description": "ID of the dataset",
+            "required": true
+          }
+        },
+        "required": ["dataset_id"]
+      }
+    },
+    {
+      "name": "ingest_dataset",
+      "description": "Trigger ingestion of a dataset from a source",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "integer",
+            "description": "ID of the dataset to ingest",
+            "required": true
+          },
+          "ingest_type": {
+            "type": "string",
+            "enum": ["osm_geofabrik", "arcgis_feature_server", "wfs_geojson", "local_shapefile"],
+            "description": "Type of ingestion source",
+            "required": true
+          },
+          "options": {
+            "type": "object",
+            "description": "Additional options for ingestion"
+          }
+        },
+        "required": ["dataset_id", "ingest_type"]
+      }
+    },
+    {
+      "name": "list_layers",
+      "description": "List all available map layers",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "query_parcels",
+      "description": "Query parcels with filters like zoning, lot size, etc.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "zoning": {
+            "type": "string",
+            "description": "Filter by zoning type (e.g., 'R-2', 'commercial')"
+          },
+          "min_lot_size": {
+            "type": "number",
+            "description": "Minimum lot size in square feet"
+          },
+          "bbox": {
+            "type": "string",
+            "description": "Bounding box for spatial filter (minx,miny,maxx,maxy)"
+          },
+          "limit": {
+            "type": "integer",
+            "description": "Maximum number of results",
+            "default": 100
+          }
+        }
+      }
+    },
+    {
+      "name": "get_layer_features_at_point",
+      "description": "Get features from a layer at a specific geographic point",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "layer_name": {
+            "type": "string",
+            "description": "Name of the layer",
+            "required": true
+          },
+          "lon": {
+            "type": "number",
+            "description": "Longitude",
+            "required": true
+          },
+          "lat": {
+            "type": "number",
+            "description": "Latitude",
+            "required": true
+          },
+          "buffer_meters": {
+            "type": "number",
+            "description": "Buffer distance in meters",
+            "default": 100
+          }
+        },
+        "required": ["layer_name", "lon", "lat"]
+      }
+    },
+    {
+      "name": "start_training",
+      "description": "Start a training job for a specific task and dataset",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "dataset_id": {
+            "type": "integer",
+            "description": "ID of the dataset to use for training",
+            "required": true
+          },
+          "task_type": {
+            "type": "string",
+            "description": "Type of training task",
+            "enum": ["zoning_explainer", "document_summary", "property_classifier"],
+            "required": true
+          }
+        },
+        "required": ["dataset_id", "task_type"]
+      }
+    }
+  ]
+}
