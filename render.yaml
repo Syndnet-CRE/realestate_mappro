@@ -2,9 +2,8 @@ services:
   - type: web
     name: realestate-mappro
     runtime: python
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: python simple_backend.py
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: python backend/simple_backend.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
