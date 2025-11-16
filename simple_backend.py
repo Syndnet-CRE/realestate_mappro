@@ -34,6 +34,7 @@ if not ANTHROPIC_API_KEY:
     print("WARNING: ANTHROPIC_API_KEY not set. Chat will not work.")
     anthropic = None
 else:
+    print(f"✅ ANTHROPIC_API_KEY is set (length: {len(ANTHROPIC_API_KEY)} chars, starts with: {ANTHROPIC_API_KEY[:7]}...)")
     anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # Define tools that Claude can use
@@ -418,10 +419,10 @@ async def chat(message: ChatMessage):
         )
 
     try:
-        print(f"🟢 Calling Claude API...")
-        # First call to Claude with tools
+        print(f"🟢 Calling Claude API with model: claude-3-haiku-20240307")
+        # First call to Claude with tools - using Haiku for broader compatibility
         response = anthropic.messages.create(
-            model="claude-3-sonnet-20240229",
+            model="claude-3-haiku-20240307",
             max_tokens=2048,
             tools=CLAUDE_TOOLS,
             messages=[{
@@ -467,7 +468,7 @@ async def chat(message: ChatMessage):
 
             # Continue the conversation with the tool result
             response = anthropic.messages.create(
-                model="claude-3-sonnet-20240229",
+                model="claude-3-haiku-20240307",
                 max_tokens=2048,
                 tools=CLAUDE_TOOLS,
                 messages=[
