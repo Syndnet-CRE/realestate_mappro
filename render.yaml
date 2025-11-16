@@ -1,7 +1,8 @@
 services:
   - type: web
-    name: scoutgpt-backend
+    name: realestate-mappro
     runtime: python
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: python simple_backend.py
     envVars:
