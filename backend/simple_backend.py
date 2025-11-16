@@ -164,6 +164,20 @@ CLAUDE_TOOLS = [
             },
             "required": ["location"]
         }
+    },
+    {
+        "name": "get_flood_zones",
+        "description": "Get FEMA flood zone data for a city or area to show flood risk levels on the map. Returns GeoJSON data with flood zones (A, AE, X) that can be displayed as map layers. Use this when users ask about flood zones, flood risk, or FEMA data.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location": {
+                    "type": "string",
+                    "description": "City or area to get flood zones for (e.g., 'Austin', 'Houston', 'Dallas')"
+                }
+            },
+            "required": ["location"]
+        }
     }
 ]
 
@@ -409,6 +423,35 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
                 "supply": "Limited"
             },
             "forecast": "Prices expected to continue rising moderately"
+        }
+
+    elif tool_name == "get_flood_zones":
+        location = tool_input.get("location", "")
+
+        # Map city to bounding box coordinates
+        city_coords = {
+            "austin": {"west": -97.9, "south": 30.1, "east": -97.6, "north": 30.5},
+            "houston": {"west": -95.8, "south": 29.5, "east": -95.1, "north": 30.1},
+            "dallas": {"west": -97.0, "south": 32.6, "east": -96.6, "north": 33.0},
+            "san antonio": {"west": -98.7, "south": 29.2, "east": -98.3, "north": 29.7},
+        }
+
+        bbox = city_coords.get(location.lower())
+        if not bbox:
+            # Default to Austin if city not found
+            bbox = city_coords["austin"]
+
+        # Format bbox for FEMA API
+        bbox_str = f"{bbox['west']},{bbox['south']},{bbox['east']},{bbox['north']}"
+
+        # Fetch flood zone data from FEMA
+        geojson_data = fetch_fema_flood_zones(bbox_str)
+
+        return {
+            "geojson": geojson_data,
+            "location": location,
+            "total_zones": len(geojson_data.get("features", [])),
+            "bbox": bbox_str
         }
 
     return {"error": f"Unknown tool: {tool_name}"}
