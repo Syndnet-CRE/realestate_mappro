@@ -5,13 +5,24 @@ This is a minimal backend that just talks to Claude API.
 No database, no Docker, no complexity - just Claude as your brain.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from anthropic import Anthropic
 import os
 import requests
 from typing import Optional, List, Dict, Any
+from sqlalchemy.orm import Session
+from sqlalchemy import text
+
+# Import database models and connection
+try:
+    from database import get_db, create_tables, Building, Parcel, FloodZone, Road, SessionLocal
+    DATABASE_AVAILABLE = True
+except ImportError:
+    print("⚠️ Database module not available - spatial queries disabled")
+    DATABASE_AVAILABLE = False
+    get_db = None
 
 app = FastAPI(
     title="ScoutGPT Simple Backend",
@@ -36,6 +47,15 @@ if not ANTHROPIC_API_KEY:
 else:
     print(f"✅ ANTHROPIC_API_KEY is set (length: {len(ANTHROPIC_API_KEY)} chars, starts with: {ANTHROPIC_API_KEY[:7]}...)")
     anthropic = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+# Initialize database (if available)
+if DATABASE_AVAILABLE:
+    try:
+        create_tables()
+        print("✅ Database tables initialized")
+    except Exception as e:
+        print(f"⚠️ Database initialization warning: {e}")
+        DATABASE_AVAILABLE = False
 
 # Define tools that Claude can use
 CLAUDE_TOOLS = [
@@ -654,13 +674,234 @@ def get_layer_features(layer_name: str):
     }
 
 
+@app.get("/api/buildings")
+def get_buildings(
+    city: Optional[str] = None,
+    bbox: Optional[str] = None,  # Format: "west,south,east,north"
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    Get building footprints from database
+
+    Query params:
+    - city: Filter by city name (e.g., "Austin")
+    - bbox: Bounding box as "west,south,east,north" (e.g., "-97.8,30.2,-97.7,30.3")
+    - limit: Max results (default 100, max 1000)
+    """
+    if not DATABASE_AVAILABLE or db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        query = db.query(Building)
+
+        if city:
+            query = query.filter(Building.city.ilike(f"%{city}%"))
+
+        if bbox:
+            try:
+                west, south, east, north = map(float, bbox.split(','))
+                # PostGIS bounding box query
+                query = query.filter(
+                    text(f"ST_Intersects(geometry, ST_MakeEnvelope({west}, {south}, {east}, {north}, 4326))")
+                )
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid bbox format. Use: west,south,east,north")
+
+        buildings = query.limit(min(limit, 1000)).all()
+
+        # Convert to GeoJSON
+        features = []
+        for building in buildings:
+            features.append({
+                "type": "Feature",
+                "geometry": {
+                    "type": "Polygon",
+                    "coordinates": [[]]  # Simplified - would need proper WKB parsing
+                },
+                "properties": {
+                    "id": building.id,
+                    "name": building.name,
+                    "type": building.building_type,
+                    "address": building.address,
+                    "city": building.city,
+                    "height": building.height,
+                    "levels": building.levels
+                }
+            })
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {
+                "count": len(features),
+                "city": city,
+                "bbox": bbox
+            }
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/parcels")
+def get_parcels(
+    city: Optional[str] = None,
+    county: Optional[str] = None,
+    zoning: Optional[str] = None,
+    bbox: Optional[str] = None,
+    limit: int = 100,
+    db: Session = Depends(get_db)
+):
+    """
+    Get property parcels from database
+
+    Query params:
+    - city: Filter by city
+    - county: Filter by county (e.g., "Travis", "Harris")
+    - zoning: Filter by zoning code
+    - bbox: Bounding box
+    - limit: Max results
+    """
+    if not DATABASE_AVAILABLE or db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        query = db.query(Parcel)
+
+        if city:
+            query = query.filter(Parcel.city.ilike(f"%{city}%"))
+        if county:
+            query = query.filter(Parcel.county.ilike(f"%{county}%"))
+        if zoning:
+            query = query.filter(Parcel.zoning.ilike(f"%{zoning}%"))
+
+        if bbox:
+            west, south, east, north = map(float, bbox.split(','))
+            query = query.filter(
+                text(f"ST_Intersects(geometry, ST_MakeEnvelope({west}, {south}, {east}, {north}, 4326))")
+            )
+
+        parcels = query.limit(min(limit, 1000)).all()
+
+        features = [{
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": [[]]},
+            "properties": {
+                "id": p.id,
+                "parcel_id": p.parcel_id,
+                "owner": p.owner_name,
+                "address": p.address,
+                "city": p.city,
+                "county": p.county,
+                "zoning": p.zoning,
+                "assessed_value": p.assessed_value,
+                "land_use": p.land_use,
+                "lot_size": p.lot_size
+            }
+        } for p in parcels]
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {"count": len(features)}
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+@app.get("/api/flood_zones")
+def get_flood_zones(
+    zone_type: Optional[str] = None,
+    bbox: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db)
+):
+    """
+    Get FEMA flood zones
+
+    Query params:
+    - zone_type: Filter by zone (A, AE, X, etc.)
+    - bbox: Bounding box
+    - limit: Max results
+    """
+    if not DATABASE_AVAILABLE or db is None:
+        # Return live FEMA data as fallback
+        return fetch_fema_flood_zones(bbox)
+
+    try:
+        query = db.query(FloodZone)
+
+        if zone_type:
+            query = query.filter(FloodZone.zone_type == zone_type.upper())
+
+        if bbox:
+            west, south, east, north = map(float, bbox.split(','))
+            query = query.filter(
+                text(f"ST_Intersects(geometry, ST_MakeEnvelope({west}, {south}, {east}, {north}, 4326))")
+            )
+
+        zones = query.limit(limit).all()
+
+        features = [{
+            "type": "Feature",
+            "geometry": {"type": "MultiPolygon", "coordinates": [[[]]]},
+            "properties": {
+                "zone_type": z.zone_type,
+                "flood_risk": z.flood_risk,
+                "description": z.description
+            }
+        } for z in zones]
+
+        return {
+            "type": "FeatureCollection",
+            "features": features,
+            "metadata": {"count": len(features)}
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+
+
+def fetch_fema_flood_zones(bbox: str):
+    """Fetch flood zones from FEMA API as fallback"""
+    if not bbox:
+        return {"type": "FeatureCollection", "features": []}
+
+    try:
+        west, south, east, north = map(float, bbox.split(','))
+
+        # FEMA National Flood Hazard Layer API
+        fema_url = "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query"
+        params = {
+            "geometry": f"{west},{south},{east},{north}",
+            "geometryType": "esriGeometryEnvelope",
+            "spatialRel": "esriSpatialRelIntersects",
+            "outFields": "FLD_ZONE,ZONE_SUBTY,STATIC_BFE",
+            "returnGeometry": "true",
+            "f": "geojson",
+            "resultRecordCount": 50
+        }
+
+        response = requests.get(fema_url, params=params, timeout=10)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {"type": "FeatureCollection", "features": []}
+    except Exception as e:
+        print(f"FEMA API error: {e}")
+        return {"type": "FeatureCollection", "features": []}
+
+
 @app.get("/health")
 def health_check():
     """Health check endpoint"""
     return {
         "status": "healthy",
         "service": "scoutgpt-simple-backend",
-        "claude_configured": anthropic is not None
+        "claude_configured": anthropic is not None,
+        "database_available": DATABASE_AVAILABLE
     }
 
 

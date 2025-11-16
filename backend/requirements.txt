@@ -4,3 +4,10 @@ anthropic==0.40.0
 pydantic==2.10.6
 python-dotenv==1.0.0
 requests==2.31.0
+# Database support
+psycopg2-binary==2.9.9
+sqlalchemy==2.0.23
+geoalchemy2==0.14.3
+# Geospatial processing
+shapely==2.0.2
+geojson==3.1.0
