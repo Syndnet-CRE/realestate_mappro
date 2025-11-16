@@ -421,7 +421,7 @@ async def chat(message: ChatMessage):
         print(f"🟢 Calling Claude API...")
         # First call to Claude with tools
         response = anthropic.messages.create(
-            model="claude-3-5-sonnet-20240620",
+            model="claude-3-sonnet-20240229",
             max_tokens=2048,
             tools=CLAUDE_TOOLS,
             messages=[{
@@ -467,7 +467,7 @@ async def chat(message: ChatMessage):
 
             # Continue the conversation with the tool result
             response = anthropic.messages.create(
-                model="claude-3-5-sonnet-20240620",
+                model="claude-3-sonnet-20240229",
                 max_tokens=2048,
                 tools=CLAUDE_TOOLS,
                 messages=[
