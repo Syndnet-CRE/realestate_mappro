@@ -6,3 +6,23 @@ package-lock.json
 .vscode/
 .idea/
 vite.config.*s.*
+
+# Backend
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.env
+backend/uploads/
+backend/*.db
+backend/*.sqlite
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.pytest_cache/
+.coverage
+htmlcov/
