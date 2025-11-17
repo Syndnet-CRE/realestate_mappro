@@ -29,7 +29,7 @@ class DocumentModel(Base):
     status = Column(String, default="pending")
     uploaded_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
 
 
 class DocumentChunkModel(Base):
@@ -43,7 +43,7 @@ class DocumentChunkModel(Base):
     page_number = Column(Integer, nullable=True)
     chunk_index = Column(Integer, nullable=False)
     embedding = Column(JSON, nullable=True)  # Store as JSON array
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -67,7 +67,7 @@ class PropertyModel(Base):
     lot_size = Column(Float)
     zoning = Column(String)
     parcel_id = Column(String, index=True)
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
     source = Column(String, default="upload")  # upload, attom, arcgis, mls
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -85,7 +85,7 @@ class DatasetModel(Base):
     file_path = Column(String, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
 
 
 class ConversationModel(Base):
@@ -97,7 +97,7 @@ class ConversationModel(Base):
     assistant_response = Column(Text, nullable=False)
     conversation_id = Column(String, index=True)
     sources = Column(JSON, default=[])
-    metadata = Column(JSON, default={})
+    meta_data = Column(JSON, default={})
     created_at = Column(DateTime, default=datetime.utcnow)
 
 

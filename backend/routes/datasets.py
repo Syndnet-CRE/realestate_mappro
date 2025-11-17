@@ -23,7 +23,7 @@ async def list_datasets():
                 created_at=ds.created_at,
                 updated_at=ds.updated_at,
                 file_type=ds.file_type,
-                metadata=ds.metadata,
+                metadata=ds.meta_data or {},
             )
             for ds in db_datasets
         ]
@@ -51,7 +51,7 @@ async def get_dataset(dataset_id: str):
             created_at=dataset.created_at,
             updated_at=dataset.updated_at,
             file_type=dataset.file_type,
-            metadata=dataset.metadata,
+            metadata=dataset.meta_data or {},
         )
 
     finally:

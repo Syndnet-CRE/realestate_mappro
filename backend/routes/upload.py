@@ -58,7 +58,7 @@ async def upload_file(file: UploadFile = File(...)):
             db_document = db.query(DocumentModel).filter_by(id=file_id).first()
             if db_document:
                 db_document.status = result.status.value
-                db_document.metadata = result.metadata
+                db_document.meta_data = result.metadata
                 db.commit()
         finally:
             db.close()
@@ -92,6 +92,7 @@ async def upload_file(file: UploadFile = File(...)):
             db_document = db.query(DocumentModel).filter_by(id=file_id).first()
             if db_document:
                 db_document.status = ProcessingStatus.FAILED.value
+                db_document.meta_data = {"error": str(e)}
                 db.commit()
         finally:
             db.close()
@@ -136,8 +137,8 @@ async def get_upload_status(file_id: str):
             filename=document.filename,
             file_type=document.file_type,
             status=document.status,
-            records_processed=document.metadata.get("records_processed", 0),
-            metadata=document.metadata,
+            records_processed=document.meta_data.get("records_processed", 0) if document.meta_data else 0,
+            metadata=document.meta_data or {},
         )
     finally:
         db.close()

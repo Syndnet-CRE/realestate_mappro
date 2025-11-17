@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     # File Upload
     max_upload_size_mb: int = 100
     upload_dir: str = "./uploads"
-    allowed_extensions: List[str] = [".zip", ".pdf", ".csv", ".xlsx", ".shp", ".dbf", ".shx", ".prj"]
+    allowed_extensions: str = ".zip,.pdf,.csv,.xlsx,.shp,.dbf,.shx,.prj"
 
     # RAG Configuration
     embedding_model: str = "text-embedding-3-small"
@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     debug: bool = True
-    cors_origins: List[str] = ["http://localhost:5173", "http://localhost:3000"]
+    cors_origins: str = "http://localhost:5173,http://localhost:3000"
 
     model_config = SettingsConfigDict(
         env_file=".env",

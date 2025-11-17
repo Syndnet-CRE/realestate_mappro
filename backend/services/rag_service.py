@@ -113,7 +113,7 @@ class RAGService:
                         content=chunk.content,
                         page_number=chunk.page_number,
                         relevance_score=float(item["score"]),
-                        metadata=chunk.metadata or {},
+                        metadata=chunk.meta_data or {},
                     )
                 )
 
