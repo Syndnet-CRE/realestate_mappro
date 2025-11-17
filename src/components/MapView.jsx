@@ -207,37 +207,84 @@ const MapView = ({ queryResults }) => {
       data: queryResults
     });
 
-    // Add circle layer for points
-    map.current.addLayer({
-      id: LAYER_ID,
-      type: 'circle',
-      source: SOURCE_ID,
-      paint: {
-        'circle-radius': 8,
-        'circle-color': '#14b8a6', // teal
-        'circle-stroke-width': 2,
-        'circle-stroke-color': '#fff'
-      }
-    });
+    // Detect if we have points or polygons
+    const hasPolygons = queryResults.features.some(f =>
+      f.geometry.type === 'Polygon' || f.geometry.type === 'MultiPolygon'
+    );
 
-    // Add labels layer
-    map.current.addLayer({
-      id: LAYER_LABEL_ID,
-      type: 'symbol',
-      source: SOURCE_ID,
-      layout: {
-        'text-field': ['get', 'name'],
-        'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
-        'text-offset': [0, 1.5],
-        'text-anchor': 'top',
-        'text-size': 12
-      },
-      paint: {
-        'text-color': '#ffffff',
-        'text-halo-color': '#000000',
-        'text-halo-width': 1
-      }
-    });
+    if (hasPolygons) {
+      // Add fill layer for polygons (flood zones, parcels, etc.)
+      map.current.addLayer({
+        id: LAYER_ID,
+        type: 'fill',
+        source: SOURCE_ID,
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+        paint: {
+          'fill-color': [
+            'match',
+            ['get', 'flood_risk'],
+            'High', '#ef4444',      // red for high risk
+            'Moderate', '#f59e0b',  // orange for moderate
+            'Low', '#10b981',       // green for low
+            '#14b8a6'               // default teal
+          ],
+          'fill-opacity': 0.3
+        }
+      });
+
+      // Add outline layer for polygons
+      map.current.addLayer({
+        id: `${LAYER_ID}-outline`,
+        type: 'line',
+        source: SOURCE_ID,
+        filter: ['in', ['geometry-type'], ['literal', ['Polygon', 'MultiPolygon']]],
+        paint: {
+          'line-color': [
+            'match',
+            ['get', 'flood_risk'],
+            'High', '#dc2626',
+            'Moderate', '#ea580c',
+            'Low', '#059669',
+            '#14b8a6'
+          ],
+          'line-width': 2
+        }
+      });
+    } else {
+      // Add circle layer for points (POIs, buildings, etc.)
+      map.current.addLayer({
+        id: LAYER_ID,
+        type: 'circle',
+        source: SOURCE_ID,
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: {
+          'circle-radius': 8,
+          'circle-color': '#14b8a6', // teal
+          'circle-stroke-width': 2,
+          'circle-stroke-color': '#fff'
+        }
+      });
+
+      // Add labels layer for points
+      map.current.addLayer({
+        id: LAYER_LABEL_ID,
+        type: 'symbol',
+        source: SOURCE_ID,
+        filter: ['==', ['geometry-type'], 'Point'],
+        layout: {
+          'text-field': ['get', 'name'],
+          'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+          'text-offset': [0, 1.5],
+          'text-anchor': 'top',
+          'text-size': 12
+        },
+        paint: {
+          'text-color': '#ffffff',
+          'text-halo-color': '#000000',
+          'text-halo-width': 1
+        }
+      });
+    }
 
     // Fit map to show all results
     if (queryResults.features && queryResults.features.length > 0) {
@@ -245,14 +292,22 @@ const MapView = ({ queryResults }) => {
       queryResults.features.forEach(feature => {
         if (feature.geometry.type === 'Point') {
           bounds.extend(feature.geometry.coordinates);
+        } else if (feature.geometry.type === 'Polygon') {
+          feature.geometry.coordinates[0].forEach(coord => bounds.extend(coord));
+        } else if (feature.geometry.type === 'MultiPolygon') {
+          feature.geometry.coordinates.forEach(polygon => {
+            polygon[0].forEach(coord => bounds.extend(coord));
+          });
         }
       });
 
-      map.current.fitBounds(bounds, {
-        padding: 50,
-        maxZoom: 15,
-        duration: 1000
-      });
+      if (!bounds.isEmpty()) {
+        map.current.fitBounds(bounds, {
+          padding: 50,
+          maxZoom: hasPolygons ? 12 : 15,
+          duration: 1000
+        });
+      }
 
       setResultCount(queryResults.features.length);
     }
@@ -268,15 +323,32 @@ const MapView = ({ queryResults }) => {
       const feature = features[0];
       const props = feature.properties;
 
+      // Popup content varies based on feature type
+      let popupHTML = '<div class="p-2">';
+
+      if (props.flood_risk) {
+        // Flood zone popup
+        popupHTML += `
+          <h3 class="font-semibold text-gray-900">Flood Zone ${props.FLD_ZONE || 'Unknown'}</h3>
+          <p class="text-sm font-medium ${props.flood_risk === 'High' ? 'text-red-600' : props.flood_risk === 'Moderate' ? 'text-orange-600' : 'text-green-600'}">
+            ${props.flood_risk} Risk
+          </p>
+          ${props.description ? `<p class="text-sm text-gray-600 mt-1">${props.description}</p>` : ''}
+        `;
+      } else {
+        // POI/Building popup
+        popupHTML += `
+          <h3 class="font-semibold text-gray-900">${props.name || 'Unnamed'}</h3>
+          <p class="text-sm text-gray-600">${props.type || ''}</p>
+          ${props.address ? `<p class="text-sm text-gray-600">${props.address}</p>` : ''}
+        `;
+      }
+
+      popupHTML += '</div>';
+
       new mapboxgl.Popup()
-        .setLngLat(feature.geometry.coordinates)
-        .setHTML(`
-          <div class="p-2">
-            <h3 class="font-semibold text-gray-900">${props.name || 'Unnamed'}</h3>
-            <p class="text-sm text-gray-600">${props.type || ''}</p>
-            ${props.address ? `<p class="text-sm text-gray-600">${props.address}</p>` : ''}
-          </div>
-        `)
+        .setLngLat(e.lngLat)
+        .setHTML(popupHTML)
         .addTo(map.current);
     });
 

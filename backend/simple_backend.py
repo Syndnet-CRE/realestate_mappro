@@ -908,32 +908,86 @@ def get_flood_zones(
 
 
 def fetch_fema_flood_zones(bbox: str):
-    """Fetch flood zones from FEMA API as fallback"""
+    """Fetch flood zones - using demo data until FEMA API is fixed"""
     if not bbox:
         return {"type": "FeatureCollection", "features": []}
 
     try:
         west, south, east, north = map(float, bbox.split(','))
 
-        # FEMA National Flood Hazard Layer API
-        fema_url = "https://hazards.fema.gov/gis/nfhl/rest/services/public/NFHL/MapServer/28/query"
-        params = {
-            "geometry": f"{west},{south},{east},{north}",
-            "geometryType": "esriGeometryEnvelope",
-            "spatialRel": "esriSpatialRelIntersects",
-            "outFields": "FLD_ZONE,ZONE_SUBTY,STATIC_BFE",
-            "returnGeometry": "true",
-            "f": "geojson",
-            "resultRecordCount": 50
+        # Demo flood zones for Austin area
+        # TODO: Replace with working FEMA API when endpoint is fixed
+        demo_flood_zones = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-97.75, 30.25],
+                            [-97.75, 30.28],
+                            [-97.72, 30.28],
+                            [-97.72, 30.25],
+                            [-97.75, 30.25]
+                        ]]
+                    },
+                    "properties": {
+                        "FLD_ZONE": "AE",
+                        "ZONE_SUBTY": "FLOODWAY",
+                        "STATIC_BFE": 520.0,
+                        "flood_risk": "High",
+                        "description": "Areas subject to flooding from 1% annual chance flood (100-year flood)"
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-97.78, 30.30],
+                            [-97.78, 30.33],
+                            [-97.75, 30.33],
+                            [-97.75, 30.30],
+                            [-97.78, 30.30]
+                        ]]
+                    },
+                    "properties": {
+                        "FLD_ZONE": "A",
+                        "ZONE_SUBTY": "",
+                        "STATIC_BFE": None,
+                        "flood_risk": "High",
+                        "description": "Areas subject to flooding from 1% annual chance flood"
+                    }
+                },
+                {
+                    "type": "Feature",
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [-97.70, 30.26],
+                            [-97.70, 30.29],
+                            [-97.67, 30.29],
+                            [-97.67, 30.26],
+                            [-97.70, 30.26]
+                        ]]
+                    },
+                    "properties": {
+                        "FLD_ZONE": "X",
+                        "ZONE_SUBTY": "0.2 PCT ANNUAL CHANCE FLOOD HAZARD",
+                        "STATIC_BFE": None,
+                        "flood_risk": "Moderate",
+                        "description": "Areas of moderate flood hazard (0.2% annual chance flood)"
+                    }
+                }
+            ]
         }
 
-        response = requests.get(fema_url, params=params, timeout=10)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {"type": "FeatureCollection", "features": []}
+        print(f"📍 Returning {len(demo_flood_zones['features'])} demo flood zones for Austin")
+        return demo_flood_zones
+
     except Exception as e:
-        print(f"FEMA API error: {e}")
+        print(f"Error generating demo flood zones: {e}")
         return {"type": "FeatureCollection", "features": []}
 
 
