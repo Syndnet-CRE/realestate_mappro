@@ -5,19 +5,26 @@ This is a minimal backend that just talks to Claude API.
 No database, no Docker, no complexity - just Claude as your brain.
 """
 
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from anthropic import Anthropic
 import os
 import requests
+import json
+import csv
+import io
+import uuid
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from shapely.geometry import shape, mapping
+from shapely import wkt
 
 # Import database models and connection
 try:
-    from database import get_db, create_tables, Building, Parcel, FloodZone, Road, SessionLocal
+    from database import get_db, create_tables, Building, Parcel, FloodZone, Road, ATTOMProperty, SessionLocal
     DATABASE_AVAILABLE = True
 except ImportError:
     print("⚠️ Database module not available - spatial queries disabled")
@@ -145,6 +152,60 @@ CLAUDE_TOOLS = [
                 }
             },
             "required": ["purchase_price", "annual_rental_income"]
+        }
+    },
+    {
+        "name": "query_attom_properties",
+        "description": "Search ATTOM property database for real properties with detailed information including AVM values, owner data, tax assessor data, and flood zones. Use this to find specific properties, analyze property values, search by bedrooms/bathrooms, filter by price range, or check flood risk.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "city": {
+                    "type": "string",
+                    "description": "City to search in (e.g., 'Austin', 'Houston')"
+                },
+                "min_bedrooms": {
+                    "type": "number",
+                    "description": "Minimum number of bedrooms"
+                },
+                "max_bedrooms": {
+                    "type": "number",
+                    "description": "Maximum number of bedrooms"
+                },
+                "min_price": {
+                    "type": "number",
+                    "description": "Minimum AVM/sale price in USD"
+                },
+                "max_price": {
+                    "type": "number",
+                    "description": "Maximum AVM/sale price in USD"
+                },
+                "min_sqft": {
+                    "type": "number",
+                    "description": "Minimum square footage"
+                },
+                "max_sqft": {
+                    "type": "number",
+                    "description": "Maximum square footage"
+                },
+                "property_type": {
+                    "type": "string",
+                    "description": "Property type (e.g., 'Single Family', 'Condo', 'Townhouse')"
+                },
+                "flood_zone": {
+                    "type": "string",
+                    "description": "Filter by flood zone (e.g., 'A', 'AE', 'X')"
+                },
+                "zip_code": {
+                    "type": "string",
+                    "description": "ZIP code to search in"
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Maximum number of results to return (default 50)"
+                }
+            },
+            "required": []
         }
     },
     {
@@ -453,6 +514,127 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
             "total_zones": len(geojson_data.get("features", [])),
             "bbox": bbox_str
         }
+
+    elif tool_name == "query_attom_properties":
+        if not DATABASE_AVAILABLE:
+            return {"error": "Database not available", "properties": []}
+
+        try:
+            # Get database session
+            db = SessionLocal()
+
+            # Build query with filters
+            query = db.query(ATTOMProperty)
+
+            # Apply filters
+            city = tool_input.get("city")
+            if city:
+                query = query.filter(ATTOMProperty.city.ilike(f"%{city}%"))
+
+            zip_code = tool_input.get("zip_code")
+            if zip_code:
+                query = query.filter(ATTOMProperty.zip_code == zip_code)
+
+            min_bedrooms = tool_input.get("min_bedrooms")
+            if min_bedrooms:
+                query = query.filter(ATTOMProperty.bedrooms >= min_bedrooms)
+
+            max_bedrooms = tool_input.get("max_bedrooms")
+            if max_bedrooms:
+                query = query.filter(ATTOMProperty.bedrooms <= max_bedrooms)
+
+            min_price = tool_input.get("min_price")
+            if min_price:
+                query = query.filter(
+                    (ATTOMProperty.avm_value >= min_price) |
+                    (ATTOMProperty.sale_price >= min_price)
+                )
+
+            max_price = tool_input.get("max_price")
+            if max_price:
+                query = query.filter(
+                    (ATTOMProperty.avm_value <= max_price) |
+                    (ATTOMProperty.sale_price <= max_price)
+                )
+
+            min_sqft = tool_input.get("min_sqft")
+            if min_sqft:
+                query = query.filter(ATTOMProperty.square_feet >= min_sqft)
+
+            max_sqft = tool_input.get("max_sqft")
+            if max_sqft:
+                query = query.filter(ATTOMProperty.square_feet <= max_sqft)
+
+            property_type = tool_input.get("property_type")
+            if property_type:
+                query = query.filter(ATTOMProperty.property_type.ilike(f"%{property_type}%"))
+
+            flood_zone = tool_input.get("flood_zone")
+            if flood_zone:
+                query = query.filter(ATTOMProperty.flood_zone == flood_zone.upper())
+
+            # Limit results
+            limit = tool_input.get("limit", 50)
+            properties = query.limit(min(limit, 200)).all()
+
+            # Convert to GeoJSON
+            features = []
+            for prop in properties:
+                # Get geometry as GeoJSON
+                geom_result = db.execute(
+                    text("SELECT ST_AsGeoJSON(geometry) as geojson FROM attom_properties WHERE id = :id"),
+                    {"id": prop.id}
+                ).fetchone()
+
+                geometry = None
+                if geom_result and geom_result[0]:
+                    geometry = json.loads(geom_result[0])
+
+                feature = {
+                    "type": "Feature",
+                    "geometry": geometry,
+                    "properties": {
+                        "id": prop.id,
+                        "address": prop.address,
+                        "city": prop.city,
+                        "state": prop.state,
+                        "zip_code": prop.zip_code,
+                        "bedrooms": prop.bedrooms,
+                        "bathrooms": prop.bathrooms,
+                        "square_feet": prop.square_feet,
+                        "lot_size_sqft": prop.lot_size_sqft,
+                        "year_built": prop.year_built,
+                        "property_type": prop.property_type,
+                        "avm_value": prop.avm_value,
+                        "avm_high": prop.avm_high,
+                        "avm_low": prop.avm_low,
+                        "owner_name": prop.owner_name,
+                        "sale_price": prop.sale_price,
+                        "assessed_total_value": prop.assessed_total_value,
+                        "tax_amount": prop.tax_amount,
+                        "flood_zone": prop.flood_zone,
+                        "flood_risk": prop.flood_risk,
+                    }
+                }
+                features.append(feature)
+
+            db.close()
+
+            geojson_data = {
+                "type": "FeatureCollection",
+                "features": features
+            }
+
+            return {
+                "geojson": geojson_data,
+                "total_found": len(features),
+                "filters": tool_input,
+                "message": f"Found {len(features)} properties matching your criteria"
+            }
+
+        except Exception as e:
+            print(f"❌ Error querying ATTOM properties: {e}")
+            return {"error": str(e), "properties": []}
 
     return {"error": f"Unknown tool: {tool_name}"}
 
@@ -989,6 +1171,304 @@ def fetch_fema_flood_zones(bbox: str):
     except Exception as e:
         print(f"Error generating demo flood zones: {e}")
         return {"type": "FeatureCollection", "features": []}
+
+
+def parse_attom_geojson(geojson_data: dict, batch_id: str) -> List[Dict[str, Any]]:
+    """Parse ATTOM GeoJSON format and extract property data"""
+    properties_list = []
+
+    features = geojson_data.get("features", [])
+    print(f"📦 Processing {len(features)} features from GeoJSON")
+
+    for feature in features:
+        try:
+            props = feature.get("properties", {})
+            geom = feature.get("geometry")
+
+            # Generate unique ATTOM ID if not present
+            attom_id = props.get("ATTOM_ID") or props.get("attom_id") or str(uuid.uuid4())
+
+            # Parse geometry
+            geometry_wkt = None
+            if geom:
+                try:
+                    geom_obj = shape(geom)
+                    geometry_wkt = geom_obj.wkt
+                except Exception as e:
+                    print(f"⚠️ Error parsing geometry for {attom_id}: {e}")
+
+            # Extract property data with flexible field mapping
+            property_data = {
+                "attom_id": attom_id,
+                "upload_batch_id": batch_id,
+
+                # Location - try multiple field name variations
+                "address": (props.get("address") or props.get("SITE_ADDRESS") or
+                           props.get("PropertyAddress") or props.get("SiteAddress")),
+                "city": (props.get("city") or props.get("SITE_CITY") or
+                        props.get("PropertyCity") or props.get("SiteCity")),
+                "state": (props.get("state") or props.get("SITE_STATE") or
+                         props.get("PropertyState") or "TX"),
+                "zip_code": str(props.get("zip_code") or props.get("SITE_ZIP") or
+                               props.get("PropertyZip") or ""),
+                "county": (props.get("county") or props.get("COUNTY") or
+                          props.get("CountyName") or "Travis"),
+
+                # Property characteristics
+                "bedrooms": int(props.get("bedrooms") or props.get("BEDROOMS") or
+                               props.get("BedroomCount") or 0) or None,
+                "bathrooms": float(props.get("bathrooms") or props.get("BATHROOMS") or
+                                  props.get("BathroomCount") or 0) or None,
+                "square_feet": int(props.get("square_feet") or props.get("SQFT") or
+                                  props.get("BuildingSize") or props.get("LivingSize") or 0) or None,
+                "lot_size_sqft": float(props.get("lot_size") or props.get("LOT_SIZE") or
+                                      props.get("LotSize") or 0) or None,
+                "year_built": int(props.get("year_built") or props.get("YEAR_BUILT") or
+                                 props.get("YearBuilt") or 0) or None,
+                "property_type": (props.get("property_type") or props.get("PROPERTY_TYPE") or
+                                 props.get("PropertyType") or props.get("UseCode")),
+
+                # AVM data
+                "avm_value": float(props.get("avm_value") or props.get("AVM") or
+                                  props.get("AVMValue") or props.get("EstimatedValue") or 0) or None,
+                "avm_high": float(props.get("avm_high") or props.get("AVM_HIGH") or
+                                 props.get("AVMHighValue") or 0) or None,
+                "avm_low": float(props.get("avm_low") or props.get("AVM_LOW") or
+                                props.get("AVMLowValue") or 0) or None,
+                "fsd_estimate": float(props.get("fsd_estimate") or props.get("FSD") or
+                                     props.get("ForeclosureSaleEstimate") or 0) or None,
+                "confidence_score": float(props.get("confidence_score") or props.get("CONFIDENCE") or
+                                         props.get("ConfidenceScore") or 0) or None,
+
+                # Recorder data (ownership/deed)
+                "owner_name": (props.get("owner_name") or props.get("OWNER") or
+                              props.get("OwnerName") or props.get("Owner1")),
+                "owner_occupied": (props.get("owner_occupied") or props.get("OWNER_OCCUPIED") or
+                                  props.get("OwnerOccupied")),
+                "sale_price": float(props.get("sale_price") or props.get("SALE_PRICE") or
+                                   props.get("LastSaleAmount") or 0) or None,
+
+                # Tax Assessor data
+                "assessed_total_value": float(props.get("assessed_value") or props.get("ASSESSED_VALUE") or
+                                             props.get("AssessedTotalValue") or 0) or None,
+                "assessed_land_value": float(props.get("assessed_land") or props.get("ASSESSED_LAND") or
+                                            props.get("AssessedLandValue") or 0) or None,
+                "assessed_improvement_value": float(props.get("assessed_improvement") or
+                                                   props.get("ASSESSED_IMPROVEMENT") or
+                                                   props.get("AssessedImprovementValue") or 0) or None,
+                "tax_amount": float(props.get("tax_amount") or props.get("TAX_AMOUNT") or
+                                   props.get("TaxAmount") or 0) or None,
+
+                # Flood data
+                "flood_zone": (props.get("flood_zone") or props.get("FLOOD_ZONE") or
+                              props.get("FloodZone") or props.get("FLD_ZONE")),
+                "flood_risk": (props.get("flood_risk") or props.get("FLOOD_RISK") or
+                              props.get("FloodRisk")),
+
+                # Geometry
+                "geometry_wkt": geometry_wkt
+            }
+
+            properties_list.append(property_data)
+
+        except Exception as e:
+            print(f"⚠️ Error parsing feature: {e}")
+            continue
+
+    return properties_list
+
+
+def parse_attom_csv(csv_content: str, batch_id: str) -> List[Dict[str, Any]]:
+    """Parse ATTOM CSV format and extract property data"""
+    properties_list = []
+
+    csv_reader = csv.DictReader(io.StringIO(csv_content))
+    rows = list(csv_reader)
+    print(f"📦 Processing {len(rows)} rows from CSV")
+
+    for row in rows:
+        try:
+            # Generate unique ATTOM ID if not present
+            attom_id = row.get("ATTOM_ID") or row.get("attom_id") or str(uuid.uuid4())
+
+            # Parse WKT geometry if present
+            geometry_wkt = row.get("geometry") or row.get("GEOMETRY") or row.get("WKT")
+
+            property_data = {
+                "attom_id": attom_id,
+                "upload_batch_id": batch_id,
+
+                # Location
+                "address": row.get("address") or row.get("SITE_ADDRESS") or row.get("PropertyAddress"),
+                "city": row.get("city") or row.get("SITE_CITY") or row.get("PropertyCity"),
+                "state": row.get("state") or row.get("SITE_STATE") or "TX",
+                "zip_code": row.get("zip_code") or row.get("SITE_ZIP") or row.get("PropertyZip"),
+                "county": row.get("county") or row.get("COUNTY") or "Travis",
+
+                # Property characteristics
+                "bedrooms": int(row.get("bedrooms") or row.get("BEDROOMS") or 0) or None,
+                "bathrooms": float(row.get("bathrooms") or row.get("BATHROOMS") or 0) or None,
+                "square_feet": int(row.get("square_feet") or row.get("SQFT") or 0) or None,
+                "lot_size_sqft": float(row.get("lot_size") or row.get("LOT_SIZE") or 0) or None,
+                "year_built": int(row.get("year_built") or row.get("YEAR_BUILT") or 0) or None,
+                "property_type": row.get("property_type") or row.get("PROPERTY_TYPE"),
+
+                # AVM data
+                "avm_value": float(row.get("avm_value") or row.get("AVM") or 0) or None,
+                "avm_high": float(row.get("avm_high") or row.get("AVM_HIGH") or 0) or None,
+                "avm_low": float(row.get("avm_low") or row.get("AVM_LOW") or 0) or None,
+                "fsd_estimate": float(row.get("fsd_estimate") or row.get("FSD") or 0) or None,
+                "confidence_score": float(row.get("confidence_score") or row.get("CONFIDENCE") or 0) or None,
+
+                # Recorder data
+                "owner_name": row.get("owner_name") or row.get("OWNER") or row.get("OwnerName"),
+                "owner_occupied": row.get("owner_occupied") or row.get("OWNER_OCCUPIED"),
+                "sale_price": float(row.get("sale_price") or row.get("SALE_PRICE") or 0) or None,
+
+                # Tax Assessor data
+                "assessed_total_value": float(row.get("assessed_value") or row.get("ASSESSED_VALUE") or 0) or None,
+                "assessed_land_value": float(row.get("assessed_land") or row.get("ASSESSED_LAND") or 0) or None,
+                "assessed_improvement_value": float(row.get("assessed_improvement") or row.get("ASSESSED_IMPROVEMENT") or 0) or None,
+                "tax_amount": float(row.get("tax_amount") or row.get("TAX_AMOUNT") or 0) or None,
+
+                # Flood data
+                "flood_zone": row.get("flood_zone") or row.get("FLOOD_ZONE") or row.get("FloodZone"),
+                "flood_risk": row.get("flood_risk") or row.get("FLOOD_RISK"),
+
+                # Geometry
+                "geometry_wkt": geometry_wkt
+            }
+
+            properties_list.append(property_data)
+
+        except Exception as e:
+            print(f"⚠️ Error parsing row: {e}")
+            continue
+
+    return properties_list
+
+
+@app.post("/api/upload-attom-data")
+async def upload_attom_data(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
+    """
+    Upload ATTOM property data (GeoJSON or CSV format)
+
+    Supports:
+    - GeoJSON files with property features
+    - CSV files with property data (can include WKT geometry column)
+
+    Returns upload summary with batch ID and record count
+    """
+    if not DATABASE_AVAILABLE or db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        # Generate unique batch ID for this upload
+        batch_id = str(uuid.uuid4())
+
+        # Read file content
+        content = await file.read()
+        filename = file.filename.lower()
+
+        print(f"📤 Uploading file: {file.filename} ({len(content)} bytes)")
+
+        # Parse based on file type
+        properties_data = []
+
+        if filename.endswith('.geojson') or filename.endswith('.json'):
+            # Parse GeoJSON
+            geojson_data = json.loads(content.decode('utf-8'))
+            properties_data = parse_attom_geojson(geojson_data, batch_id)
+
+        elif filename.endswith('.csv'):
+            # Parse CSV
+            csv_content = content.decode('utf-8')
+            properties_data = parse_attom_csv(csv_content, batch_id)
+
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type. Please upload .geojson, .json, or .csv files"
+            )
+
+        if not properties_data:
+            raise HTTPException(status_code=400, detail="No valid property data found in file")
+
+        # Insert properties into database
+        inserted_count = 0
+        skipped_count = 0
+
+        for prop_data in properties_data:
+            try:
+                # Check if property already exists
+                existing = db.query(ATTOMProperty).filter(
+                    ATTOMProperty.attom_id == prop_data["attom_id"]
+                ).first()
+
+                if existing:
+                    # Update existing property
+                    for key, value in prop_data.items():
+                        if key != "geometry_wkt" and value is not None:
+                            setattr(existing, key, value)
+
+                    # Update geometry if provided
+                    if prop_data.get("geometry_wkt"):
+                        db.execute(
+                            text(f"UPDATE attom_properties SET geometry = ST_GeomFromText(:wkt, 4326) WHERE id = :id"),
+                            {"wkt": prop_data["geometry_wkt"], "id": existing.id}
+                        )
+
+                    existing.updated_at = datetime.utcnow()
+                    skipped_count += 1
+                else:
+                    # Create new property
+                    new_property = ATTOMProperty(**{k: v for k, v in prop_data.items() if k != "geometry_wkt"})
+                    db.add(new_property)
+                    db.flush()  # Get the ID
+
+                    # Set geometry separately using PostGIS function
+                    if prop_data.get("geometry_wkt"):
+                        db.execute(
+                            text(f"UPDATE attom_properties SET geometry = ST_GeomFromText(:wkt, 4326) WHERE id = :id"),
+                            {"wkt": prop_data["geometry_wkt"], "id": new_property.id}
+                        )
+
+                    inserted_count += 1
+
+                # Commit every 100 records to avoid memory issues
+                if (inserted_count + skipped_count) % 100 == 0:
+                    db.commit()
+                    print(f"✅ Progress: {inserted_count + skipped_count}/{len(properties_data)} records")
+
+            except Exception as e:
+                print(f"⚠️ Error inserting property {prop_data.get('attom_id')}: {e}")
+                skipped_count += 1
+                continue
+
+        # Final commit
+        db.commit()
+
+        print(f"✅ Upload complete: {inserted_count} inserted, {skipped_count} skipped/updated")
+
+        return {
+            "success": True,
+            "batch_id": batch_id,
+            "filename": file.filename,
+            "total_records": len(properties_data),
+            "inserted": inserted_count,
+            "updated": skipped_count,
+            "message": f"Successfully processed {inserted_count + skipped_count} properties from {file.filename}"
+        }
+
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid JSON format: {str(e)}")
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
 
 
 @app.get("/health")

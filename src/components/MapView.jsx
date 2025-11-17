@@ -324,10 +324,83 @@ const MapView = ({ queryResults }) => {
       const props = feature.properties;
 
       // Popup content varies based on feature type
-      let popupHTML = '<div class="p-2">';
+      let popupHTML = '<div class="p-3 max-w-sm">';
 
-      if (props.flood_risk) {
-        // Flood zone popup
+      if (props.avm_value !== undefined || props.bedrooms !== undefined) {
+        // ATTOM property popup
+        const formatCurrency = (val) => val ? `$${val.toLocaleString()}` : 'N/A';
+        const formatNumber = (val) => val || 'N/A';
+
+        popupHTML += `
+          <h3 class="font-bold text-gray-900 text-base mb-2">${props.address || 'Property'}</h3>
+          <p class="text-xs text-gray-500 mb-3">${props.city || ''}, ${props.state || 'TX'} ${props.zip_code || ''}</p>
+
+          ${props.avm_value ? `
+            <div class="mb-3 pb-3 border-b border-gray-200">
+              <p class="text-xs font-semibold text-gray-700 uppercase mb-1">Estimated Value (AVM)</p>
+              <p class="text-lg font-bold text-teal-600">${formatCurrency(props.avm_value)}</p>
+              ${props.avm_low && props.avm_high ? `
+                <p class="text-xs text-gray-500">Range: ${formatCurrency(props.avm_low)} - ${formatCurrency(props.avm_high)}</p>
+              ` : ''}
+            </div>
+          ` : ''}
+
+          <div class="grid grid-cols-2 gap-2 mb-3 text-xs">
+            ${props.bedrooms !== null && props.bedrooms !== undefined ? `
+              <div>
+                <p class="text-gray-500">Beds</p>
+                <p class="font-semibold text-gray-900">${props.bedrooms}</p>
+              </div>
+            ` : ''}
+            ${props.bathrooms !== null && props.bathrooms !== undefined ? `
+              <div>
+                <p class="text-gray-500">Baths</p>
+                <p class="font-semibold text-gray-900">${props.bathrooms}</p>
+              </div>
+            ` : ''}
+            ${props.square_feet ? `
+              <div>
+                <p class="text-gray-500">Sqft</p>
+                <p class="font-semibold text-gray-900">${formatNumber(props.square_feet)}</p>
+              </div>
+            ` : ''}
+            ${props.year_built ? `
+              <div>
+                <p class="text-gray-500">Built</p>
+                <p class="font-semibold text-gray-900">${props.year_built}</p>
+              </div>
+            ` : ''}
+          </div>
+
+          ${props.property_type ? `
+            <p class="text-xs text-gray-600 mb-2"><span class="font-medium">Type:</span> ${props.property_type}</p>
+          ` : ''}
+
+          ${props.assessed_total_value ? `
+            <p class="text-xs text-gray-600 mb-2"><span class="font-medium">Tax Assessment:</span> ${formatCurrency(props.assessed_total_value)}</p>
+          ` : ''}
+
+          ${props.sale_price ? `
+            <p class="text-xs text-gray-600 mb-2"><span class="font-medium">Last Sale:</span> ${formatCurrency(props.sale_price)}</p>
+          ` : ''}
+
+          ${props.flood_zone ? `
+            <div class="mt-3 pt-3 border-t border-gray-200">
+              <p class="text-xs">
+                <span class="font-medium text-gray-700">Flood Zone:</span>
+                <span class="${props.flood_risk === 'High' ? 'text-red-600' : props.flood_risk === 'Moderate' ? 'text-orange-600' : 'text-green-600'} font-semibold">
+                  ${props.flood_zone} (${props.flood_risk || 'Unknown'} Risk)
+                </span>
+              </p>
+            </div>
+          ` : ''}
+
+          ${props.owner_name ? `
+            <p class="text-xs text-gray-500 mt-2">Owner: ${props.owner_name}</p>
+          ` : ''}
+        `;
+      } else if (props.flood_risk && !props.avm_value) {
+        // Flood zone popup (standalone, not property-linked)
         popupHTML += `
           <h3 class="font-semibold text-gray-900">Flood Zone ${props.FLD_ZONE || 'Unknown'}</h3>
           <p class="text-sm font-medium ${props.flood_risk === 'High' ? 'text-red-600' : props.flood_risk === 'Moderate' ? 'text-orange-600' : 'text-green-600'}">

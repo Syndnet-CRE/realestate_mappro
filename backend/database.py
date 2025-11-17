@@ -91,6 +91,65 @@ class Road(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+class ATTOMProperty(Base):
+    """ATTOM property data - combines AVM, Recorder, Tax Assessor, Parcel, and Flood data"""
+    __tablename__ = "attom_properties"
+
+    id = Column(Integer, primary_key=True, index=True)
+    attom_id = Column(String, unique=True, index=True)
+
+    # Location
+    address = Column(String, index=True)
+    city = Column(String, index=True)
+    state = Column(String, default="TX")
+    zip_code = Column(String, index=True)
+    county = Column(String, index=True)
+
+    # Property Characteristics
+    bedrooms = Column(Integer, nullable=True, index=True)
+    bathrooms = Column(Float, nullable=True)
+    square_feet = Column(Integer, nullable=True, index=True)
+    lot_size_sqft = Column(Float, nullable=True)
+    year_built = Column(Integer, nullable=True, index=True)
+    property_type = Column(String, nullable=True, index=True)  # Single Family, Condo, etc.
+
+    # AVM (Automated Valuation Model)
+    avm_value = Column(Float, nullable=True, index=True)
+    avm_high = Column(Float, nullable=True)
+    avm_low = Column(Float, nullable=True)
+    avm_date = Column(DateTime, nullable=True)
+    fsd_estimate = Column(Float, nullable=True)  # Foreclosure sale estimate
+    confidence_score = Column(Float, nullable=True)
+
+    # Recorder (Deed/Ownership)
+    owner_name = Column(String, nullable=True, index=True)
+    owner_occupied = Column(String, nullable=True)  # Y/N
+    deed_date = Column(DateTime, nullable=True)
+    deed_type = Column(String, nullable=True)
+    sale_price = Column(Float, nullable=True, index=True)
+    sale_date = Column(DateTime, nullable=True, index=True)
+
+    # Tax Assessor
+    assessed_total_value = Column(Float, nullable=True, index=True)
+    assessed_land_value = Column(Float, nullable=True)
+    assessed_improvement_value = Column(Float, nullable=True)
+    tax_year = Column(Integer, nullable=True)
+    tax_amount = Column(Float, nullable=True)
+
+    # Flood Hazard
+    flood_zone = Column(String, nullable=True, index=True)
+    flood_risk = Column(String, nullable=True)  # High, Moderate, Low
+
+    # Parcel Geometry
+    geometry = Column(Geometry('POLYGON', srid=4326))
+
+    # Metadata
+    data_source = Column(String, default="ATTOM")
+    upload_batch_id = Column(String, nullable=True, index=True)  # Track which upload this came from
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 def get_db():
     """Get database session"""
     if SessionLocal is None:
