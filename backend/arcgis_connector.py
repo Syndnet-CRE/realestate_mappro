@@ -171,18 +171,35 @@ class ArcGISConnector:
             return {}
 
 
-# Common county ArcGIS service URLs (examples - users will provide their own)
+# Common county ArcGIS service URLs (PUBLIC services that don't require tokens)
 COUNTY_SERVICES = {
     'travis': {
-        'parcels': 'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/TCAD_Parcels/FeatureServer/0',
+        # City of Austin Open Data Portal - Parcels
+        'parcels': 'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/Jurisdictions/FeatureServer/0',
+        # City of Austin Zoning
+        'zoning': 'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/Zoning/FeatureServer/0',
+    },
+    'austin': {  # Same as Travis for convenience
+        'parcels': 'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/Jurisdictions/FeatureServer/0',
         'zoning': 'https://services.arcgis.com/0L95CJ0VTaxqcmED/arcgis/rest/services/Zoning/FeatureServer/0',
     },
     'dallas': {
-        'parcels': 'https://gis.dallascounty.org/arcgis/rest/services/Parcels/MapServer/0',
-        'zoning': 'https://gis.dallascounty.org/arcgis/rest/services/Zoning/MapServer/0',
+        # Dallas County Open Data
+        'parcels': 'https://services.arcgis.com/SPuD7zqoCTn6u6He/arcgis/rest/services/Parcels/FeatureServer/0',
+        'zoning': 'https://services.arcgis.com/SPuD7zqoCTn6u6He/arcgis/rest/services/Zoning/FeatureServer/0',
     },
-    # Users can add more counties
+    'harris': {  # Houston area
+        'parcels': 'https://services.arcgis.com/su8ic9KbA7PYVxPS/arcgis/rest/services/Harris_County_Parcels/FeatureServer/0',
+        'zoning': 'https://services.arcgis.com/su8ic9KbA7PYVxPS/arcgis/rest/services/Zoning/FeatureServer/0',
+    },
+    # Users can add more counties or override with custom URLs
 }
+
+# NOTE: If you get "token required" errors, the service may require authentication.
+# Solution: Ask the user to provide a custom service_url parameter when calling the tool.
+# Example: "Show me parcels in Travis County" with custom URL
+# Claude will use query_arcgis_parcels(county="travis", service_url="https://your-public-url/FeatureServer/0")
+
 
 
 def get_county_service_url(county: str, layer_type: str) -> Optional[str]:
