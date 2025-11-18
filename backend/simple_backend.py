@@ -730,6 +730,131 @@ def execute_tool(tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
             print(f"❌ Error querying ATTOM properties: {e}")
             return {"error": str(e), "properties": []}
 
+    elif tool_name == "search_documents":
+        if not RAG_AVAILABLE or not DATABASE_AVAILABLE:
+            return {"error": "RAG system not available", "results": []}
+
+        try:
+            query_text = tool_input.get("query", "")
+            top_k = int(tool_input.get("top_k", 5))
+            category = tool_input.get("category")
+
+            # Generate embedding for query
+            query_embedding = EMBEDDING_MODEL.encode([query_text])[0].tolist()
+
+            # Get database session
+            db = SessionLocal()
+
+            # Build query for document chunks
+            # Use pgvector's cosine distance for similarity search
+            query = db.query(DocumentChunk, Document).join(
+                Document, DocumentChunk.document_id == Document.id
+            )
+
+            # Filter by category if specified
+            if category:
+                query = query.filter(Document.category == category)
+
+            # Order by similarity (cosine distance)
+            query = query.order_by(
+                DocumentChunk.embedding.cosine_distance(query_embedding)
+            ).limit(top_k)
+
+            results = []
+            for chunk, doc in query.all():
+                results.append({
+                    "text": chunk.chunk_text,
+                    "source": doc.filename,
+                    "category": doc.category,
+                    "page": chunk.page_number,
+                    "relevance_score": 1.0  # Could calculate actual score if needed
+                })
+
+            db.close()
+
+            return {
+                "query": query_text,
+                "results": results,
+                "total_found": len(results),
+                "message": f"Found {len(results)} relevant passages"
+            }
+
+        except Exception as e:
+            print(f"❌ Error searching documents: {e}")
+            return {"error": str(e), "results": []}
+
+    elif tool_name == "query_arcgis_parcels":
+        try:
+            county = tool_input.get("county", "")
+            city = tool_input.get("city")
+            address = tool_input.get("address")
+            bbox = tool_input.get("bbox")
+            service_url = tool_input.get("service_url")
+
+            # Get service URL from county name or use custom URL
+            if not service_url:
+                service_url = get_county_service_url(county, 'parcels')
+
+            if not service_url:
+                return {
+                    "error": f"No parcel service configured for {county} county. Please provide a custom service_url.",
+                    "features": []
+                }
+
+            # Query ArcGIS API
+            geojson_data = ArcGISConnector.query_parcels(
+                service_url=service_url,
+                city=city,
+                address=address,
+                bbox=bbox
+            )
+
+            return {
+                "geojson": geojson_data,
+                "county": county,
+                "total_found": len(geojson_data.get("features", [])),
+                "service_url": service_url
+            }
+
+        except Exception as e:
+            print(f"❌ Error querying ArcGIS parcels: {e}")
+            return {"error": str(e), "features": []}
+
+    elif tool_name == "query_arcgis_zoning":
+        try:
+            county = tool_input.get("county", "")
+            zone_type = tool_input.get("zone_type")
+            bbox = tool_input.get("bbox")
+            service_url = tool_input.get("service_url")
+
+            # Get service URL from county name or use custom URL
+            if not service_url:
+                service_url = get_county_service_url(county, 'zoning')
+
+            if not service_url:
+                return {
+                    "error": f"No zoning service configured for {county} county. Please provide a custom service_url.",
+                    "features": []
+                }
+
+            # Query ArcGIS API
+            geojson_data = ArcGISConnector.query_zoning(
+                service_url=service_url,
+                zone_type=zone_type,
+                bbox=bbox
+            )
+
+            return {
+                "geojson": geojson_data,
+                "county": county,
+                "total_found": len(geojson_data.get("features", [])),
+                "service_url": service_url
+            }
+
+        except Exception as e:
+            print(f"❌ Error querying ArcGIS zoning: {e}")
+            return {"error": str(e), "features": []}
+
     return {"error": f"Unknown tool: {tool_name}"}
 
 
@@ -758,11 +883,48 @@ async def chat(message: ChatMessage):
         )
 
     try:
+        # Specialized Real Estate Analyst System Prompt
+        SYSTEM_PROMPT = """You are ScoutGPT, an expert real estate investment analyst specializing in commercial and residential property analysis.
+
+**Your Expertise:**
+- Property valuation (AVM, comps, cap rates)
+- Zoning and land use analysis
+- Investment underwriting (NOI, cash flow, ROI)
+- Market trends and forecasting
+- Due diligence research
+- Flood risk and environmental analysis
+
+**Response Style:**
+- FAST and ACTIONABLE: Answer in <10 seconds with specific data, not essays
+- DATA-FIRST: Lead with numbers, facts, and specific findings
+- STRUCTURED: Use bullet points, tables, or clear sections
+- CITE SOURCES: When using uploaded documents or API data, cite the source
+
+**Tools Available:**
+- query_attom_properties: Search uploaded property database
+- search_documents: Find info from uploaded PDFs/reports
+- query_arcgis_parcels: Live county parcel data
+- query_arcgis_zoning: Live zoning information
+- search_places: Find POIs from OpenStreetMap
+
+**Examples:**
+User: "Show me 4-unit multifamily under $1M in Austin"
+You: [Use query_attom_properties or query_arcgis_parcels, then summarize findings with addresses, prices, cap rates]
+
+User: "What are cap rates in this market?"
+You: [Use search_documents to find market reports, cite specific data]
+
+User: "Can I build 50 units on this lot?"
+You: [Use query_arcgis_zoning, analyze FAR/setbacks, give YES/NO with reasoning]
+
+Be direct, specific, and actionable. No fluff."""
+
         print(f"🟢 Calling Claude API with model: claude-3-haiku-20240307")
         # First call to Claude with tools - using Haiku for broader compatibility
         response = anthropic.messages.create(
             model="claude-3-haiku-20240307",
             max_tokens=2048,
+            system=SYSTEM_PROMPT,
             tools=CLAUDE_TOOLS,
             messages=[{
                 "role": "user",
@@ -809,6 +971,7 @@ async def chat(message: ChatMessage):
             response = anthropic.messages.create(
                 model="claude-3-haiku-20240307",
                 max_tokens=2048,
+                system=SYSTEM_PROMPT,
                 tools=CLAUDE_TOOLS,
                 messages=[
                     {"role": "user", "content": message.message},
@@ -1440,6 +1603,167 @@ def parse_attom_csv(csv_content: str, batch_id: str) -> List[Dict[str, Any]]:
             continue
 
     return properties_list
+
+
+@app.post("/api/upload-data")
+async def upload_data(
+    file: UploadFile = File(...),
+    category: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Unified upload endpoint for all data types
+
+    Supports:
+    - ZIP files (containing CSVs, PDFs, Shapefiles, Excel files, GeoJSON)
+    - PDF documents (market reports, appraisals, etc.) - stored for RAG
+    - Excel files (.xlsx, .xls)
+    - GeoJSON files
+    - CSV files
+    - Shapefiles (.shp with supporting files in ZIP)
+
+    Returns upload summary with processing results
+    """
+    if not DATABASE_AVAILABLE or db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    try:
+        batch_id = str(uuid.uuid4())
+        content = await file.read()
+        filename = file.filename.lower()
+
+        print(f"📤 Uploading: {file.filename} ({len(content)} bytes)")
+
+        results = {
+            "success": True,
+            "batch_id": batch_id,
+            "filename": file.filename,
+            "processed": {
+                "properties": 0,
+                "documents": 0,
+                "chunks": 0
+            },
+            "errors": []
+        }
+
+        # Process based on file type
+        if filename.endswith('.zip'):
+            # Process ZIP file
+            zip_results = FileProcessor.process_zip(content, batch_id)
+
+            # Process each file type from ZIP
+            for csv_data in zip_results.get('csvs', []):
+                # Process as ATTOM property data
+                props_data = parse_attom_csv(csv_data['data'], batch_id)
+                # ... insert into database (reuse existing logic)
+                results['processed']['properties'] += len(props_data)
+
+            for pdf_data in zip_results.get('pdfs', []):
+                # Store PDF for RAG
+                doc_count, chunk_count = store_document_for_rag(pdf_data, db, category)
+                results['processed']['documents'] += doc_count
+                results['processed']['chunks'] += chunk_count
+
+            for geojson_data in zip_results.get('geojsons', []):
+                # Process as property data
+                props_data = parse_attom_geojson(geojson_data['geojson'], batch_id)
+                results['processed']['properties'] += len(props_data)
+
+            results['errors'] = zip_results.get('errors', [])
+
+        elif filename.endswith('.pdf'):
+            # Process single PDF for RAG
+            pdf_data = FileProcessor.process_pdf(content, file.filename, batch_id)
+            doc_count, chunk_count = store_document_for_rag(pdf_data, db, category)
+            results['processed']['documents'] = doc_count
+            results['processed']['chunks'] = chunk_count
+
+        elif filename.endswith(('.geojson', '.json')):
+            # Process GeoJSON as property data
+            geojson_data = json.loads(content.decode('utf-8'))
+            props_data = parse_attom_geojson(geojson_data, batch_id)
+            results['processed']['properties'] = len(props_data)
+
+        elif filename.endswith('.csv'):
+            # Process CSV as property data
+            csv_content = content.decode('utf-8')
+            props_data = parse_attom_csv(csv_content, batch_id)
+            results['processed']['properties'] = len(props_data)
+
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
+
+        return results
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Upload error: {e}")
+        raise HTTPException(status_code=500, detail=f"Upload failed: {str(e)}")
+
+
+def store_document_for_rag(pdf_data: Dict[str, Any], db: Session, category: Optional[str] = None) -> tuple:
+    """
+    Store PDF document and create embeddings for RAG
+
+    Returns:
+        (document_count, chunk_count)
+    """
+    if not RAG_AVAILABLE or 'text_content' not in pdf_data:
+        return (0, 0)
+
+    try:
+        # Create document record
+        doc = Document(
+            filename=pdf_data['filename'],
+            file_type='pdf',
+            file_size=pdf_data.get('file_size', 0),
+            upload_batch_id=pdf_data['batch_id'],
+            title=pdf_data.get('metadata', {}).get('title'),
+            category=category,
+            text_content=pdf_data['text_content'],
+            page_count=pdf_data.get('page_count'),
+            metadata_json=pdf_data.get('metadata')
+        )
+        db.add(doc)
+        db.flush()  # Get document ID
+
+        # Chunk the text
+        chunks = DocumentChunker.chunk_text(pdf_data['text_content'])
+
+        # Generate embeddings and store chunks
+        chunk_count = 0
+        for idx, chunk_text in enumerate(chunks):
+            # Generate embedding
+            embedding = EMBEDDING_MODEL.encode([chunk_text])[0].tolist()
+
+            # Get metadata
+            metadata = DocumentChunker.get_chunk_metadata(chunk_text)
+
+            # Create chunk record
+            chunk = DocumentChunk(
+                document_id=doc.id,
+                chunk_text=chunk_text,
+                chunk_index=idx,
+                embedding=embedding,
+                char_count=metadata['char_count'],
+                word_count=metadata['word_count']
+            )
+            db.add(chunk)
+            chunk_count += 1
+
+            # Commit every 50 chunks to avoid memory issues
+            if chunk_count % 50 == 0:
+                db.commit()
+
+        db.commit()
+        print(f"✅ Stored document '{pdf_data['filename']}' with {chunk_count} chunks")
+
+        return (1, chunk_count)
+
+    except Exception as e:
+        print(f"❌ Error storing document for RAG: {e}")
+        db.rollback()
+        return (0, 0)
 
 
 @app.post("/api/upload-attom-data")

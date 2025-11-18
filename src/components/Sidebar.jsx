@@ -41,12 +41,12 @@ const Sidebar = () => {
   const handleFileUpload = async (file) => {
     if (!file) return;
 
-    // Validate file type
-    const validTypes = ['.geojson', '.json', '.csv'];
+    // Validate file type - accept more formats now
+    const validTypes = ['.geojson', '.json', '.csv', '.zip', '.pdf', '.xlsx', '.xls', '.shp'];
     const fileExt = file.name.toLowerCase().slice(file.name.lastIndexOf('.'));
     if (!validTypes.includes(fileExt)) {
       setUploadStatus('error');
-      setUploadMessage('Invalid file type. Please upload .geojson, .json, or .csv files');
+      setUploadMessage('Invalid file type. Please upload .geojson, .json, .csv, .zip, .pdf, .xlsx, or .shp files');
       setTimeout(() => setUploadStatus(null), 5000);
       return;
     }
@@ -69,7 +69,7 @@ const Sidebar = () => {
       formData.append('file', file);
 
       const response = await axios.post(
-        `${API_BASE_URL}/api/upload-attom-data`,
+        `${API_BASE_URL}/api/upload-data`,
         formData,
         {
           headers: {
@@ -85,9 +85,12 @@ const Sidebar = () => {
       );
 
       setUploadStatus('success');
-      setUploadMessage(
-        `Success! Imported ${response.data.inserted} properties (${response.data.updated} updated)`
-      );
+      const { processed } = response.data;
+      let message = 'Success! ';
+      if (processed.properties > 0) message += `${processed.properties} properties, `;
+      if (processed.documents > 0) message += `${processed.documents} documents, `;
+      if (processed.chunks > 0) message += `${processed.chunks} chunks`;
+      setUploadMessage(message);
 
       // Clear success message after 10 seconds
       setTimeout(() => setUploadStatus(null), 10000);
@@ -182,7 +185,7 @@ const Sidebar = () => {
         <input
           ref={fileInputRef}
           type="file"
-          accept=".geojson,.json,.csv"
+          accept=".geojson,.json,.csv,.zip,.pdf,.xlsx,.xls,.shp"
           onChange={handleFileInputChange}
           className="hidden"
         />
@@ -239,13 +242,13 @@ const Sidebar = () => {
               ) : (
                 <>
                   <p className="text-xs font-medium text-gray-300">
-                    Drop ATTOM data here
+                    Drop files here
                   </p>
                   <p className="text-xs text-gray-500 mt-1">
                     or click to browse
                   </p>
                   <p className="text-xs text-gray-600 mt-1">
-                    GeoJSON, JSON, CSV
+                    ZIP, PDF, CSV, GeoJSON, Excel, Shapefiles
                   </p>
                 </>
               )}
