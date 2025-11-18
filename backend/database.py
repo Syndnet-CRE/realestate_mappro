@@ -1,10 +1,11 @@
 """
-Database connection and models for PostGIS
+Database connection and models for PostGIS and RAG
 """
-from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, Text, JSON, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from geoalchemy2 import Geometry
+from pgvector.sqlalchemy import Vector
 import os
 from datetime import datetime
 
@@ -150,6 +151,52 @@ class ATTOMProperty(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class Document(Base):
+    """Uploaded documents for RAG (PDFs, market reports, appraisals, etc.)"""
+    __tablename__ = "documents"
+
+    id = Column(Integer, primary_key=True, index=True)
+    filename = Column(String, index=True)
+    file_type = Column(String)  # pdf, xlsx, csv, etc.
+    file_size = Column(Integer)  # bytes
+    upload_batch_id = Column(String, nullable=True, index=True)
+
+    # Document metadata
+    title = Column(String, nullable=True)
+    description = Column(Text, nullable=True)
+    category = Column(String, nullable=True, index=True)  # appraisal, market_report, due_diligence, etc.
+    location = Column(String, nullable=True, index=True)  # City/area this doc relates to
+
+    # Extracted content
+    text_content = Column(Text, nullable=True)  # Full text extracted from document
+    page_count = Column(Integer, nullable=True)
+    metadata_json = Column(JSON, nullable=True)  # Additional metadata (author, date, etc.)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
+class DocumentChunk(Base):
+    """Text chunks from documents with embeddings for semantic search (RAG)"""
+    __tablename__ = "document_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    document_id = Column(Integer, index=True)  # References documents.id
+
+    # Chunk content
+    chunk_text = Column(Text)
+    chunk_index = Column(Integer)  # Order within document
+    page_number = Column(Integer, nullable=True)
+
+    # Embedding for semantic search (384 dimensions for sentence-transformers/all-MiniLM-L6-v2)
+    embedding = Column(Vector(384))
+
+    # Metadata for better retrieval
+    char_count = Column(Integer)
+    word_count = Column(Integer)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def get_db():
     """Get database session"""
     if SessionLocal is None:
@@ -162,8 +209,17 @@ def get_db():
 
 
 def create_tables():
-    """Create all database tables"""
+    """Create all database tables and enable extensions"""
     if engine:
+        # Enable pgvector extension for vector similarity search
+        try:
+            with engine.connect() as conn:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+                conn.commit()
+                print("✅ pgvector extension enabled")
+        except Exception as e:
+            print(f"⚠️ pgvector extension warning: {e}")
+
         Base.metadata.create_all(bind=engine)
         print("✅ Database tables created successfully")
     else:

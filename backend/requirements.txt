@@ -13,3 +13,10 @@ geoalchemy2==0.14.3
 numpy<2.0
 shapely==2.0.2
 geojson==3.1.0
+# Multi-format file processing
+pypdf2==3.0.1  # PDF text extraction
+openpyxl==3.1.2  # Excel file support
+fiona==1.9.5  # Shapefile processing
+# RAG and embeddings
+sentence-transformers==2.2.2  # Text embeddings for semantic search
+pgvector==0.2.4  # PostgreSQL vector extension support

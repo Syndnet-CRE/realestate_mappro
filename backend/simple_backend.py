@@ -24,12 +24,28 @@ from shapely import wkt
 
 # Import database models and connection
 try:
-    from database import get_db, create_tables, Building, Parcel, FloodZone, Road, ATTOMProperty, SessionLocal
+    from database import (
+        get_db, create_tables, Building, Parcel, FloodZone, Road,
+        ATTOMProperty, Document, DocumentChunk, SessionLocal
+    )
     DATABASE_AVAILABLE = True
 except ImportError:
     print("⚠️ Database module not available - spatial queries disabled")
     DATABASE_AVAILABLE = False
     get_db = None
+
+# Import file processors and connectors
+try:
+    from file_processors import FileProcessor, DocumentChunker
+    from arcgis_connector import ArcGISConnector, get_county_service_url
+    from sentence_transformers import SentenceTransformer
+    # Initialize embedding model for RAG (runs once at startup)
+    EMBEDDING_MODEL = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+    RAG_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ RAG/File processing modules not available: {e}")
+    RAG_AVAILABLE = False
+    EMBEDDING_MODEL = None
 
 app = FastAPI(
     title="ScoutGPT Simple Backend",
@@ -238,6 +254,84 @@ CLAUDE_TOOLS = [
                 }
             },
             "required": ["location"]
+        }
+    },
+    {
+        "name": "search_documents",
+        "description": "Search uploaded documents (PDFs, market reports, appraisals, due diligence docs) using semantic search. Use this to find relevant information from the user's uploaded document library. Returns text excerpts with source citations.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (e.g., 'What are cap rates in Austin?', 'flood risk assessment', 'comparable sales')"
+                },
+                "top_k": {
+                    "type": "number",
+                    "description": "Number of results to return (default 5)"
+                },
+                "category": {
+                    "type": "string",
+                    "description": "Filter by document category (appraisal, market_report, due_diligence, etc.)"
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "query_arcgis_parcels",
+        "description": "Query county parcel data from ArcGIS REST API. Returns parcel boundaries, ownership, assessed values, and property details. Use this to find parcels by address, city, or bounding box.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "county": {
+                    "type": "string",
+                    "description": "County name (e.g., 'Travis', 'Dallas', 'Harris')"
+                },
+                "city": {
+                    "type": "string",
+                    "description": "Filter by city name"
+                },
+                "address": {
+                    "type": "string",
+                    "description": "Filter by address (partial match)"
+                },
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box (west,south,east,north) e.g., '-97.8,30.2,-97.7,30.3'"
+                },
+                "service_url": {
+                    "type": "string",
+                    "description": "Custom ArcGIS FeatureServer URL (if not using built-in county services)"
+                }
+            },
+            "required": ["county"]
+        }
+    },
+    {
+        "name": "query_arcgis_zoning",
+        "description": "Query county zoning data from ArcGIS REST API. Returns zoning designations, land use codes, and development restrictions. Use this for zoning feasibility analysis.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "county": {
+                    "type": "string",
+                    "description": "County name (e.g., 'Travis', 'Dallas', 'Harris')"
+                },
+                "zone_type": {
+                    "type": "string",
+                    "description": "Filter by zoning code (e.g., 'R-2', 'C-1', 'MF-3')"
+                },
+                "bbox": {
+                    "type": "string",
+                    "description": "Bounding box (west,south,east,north)"
+                },
+                "service_url": {
+                    "type": "string",
+                    "description": "Custom ArcGIS FeatureServer URL (if not using built-in county services)"
+                }
+            },
+            "required": ["county"]
         }
     }
 ]
