@@ -80,14 +80,19 @@ async def send_message(request: ChatRequest, db: Session = Depends(get_db)):
 
                 city_list = ", ".join([f"{city} ({state})" for city, state in cities if city and state])
 
+                # Format statistics
+                avg_price_str = f"${stats.avg_price:,.0f}" if stats.avg_price else 'N/A'
+                avg_beds_str = f"{stats.avg_beds:.1f}" if stats.avg_beds else 'N/A'
+                avg_sqft_str = f"{stats.avg_sqft:,.0f}" if stats.avg_sqft else 'N/A'
+
                 context = f"""
 You are ScoutGPT, a real estate intelligence assistant. You have access to the following data:
 
 DATABASE CONTEXT:
 - Total properties in database: {stats.total}
-- Average property value: ${stats.avg_price:,.0f} if stats.avg_price else 'N/A'}
-- Average bedrooms: {stats.avg_beds:.1f if stats.avg_beds else 'N/A'}
-- Average square feet: {stats.avg_sqft:,.0f if stats.avg_sqft else 'N/A'}
+- Average property value: {avg_price_str}
+- Average bedrooms: {avg_beds_str}
+- Average square feet: {avg_sqft_str}
 - Cities covered: {city_list}
 
 Available data sources:
