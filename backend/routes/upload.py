@@ -17,7 +17,7 @@ router = APIRouter()
 
 @router.post("/csv")
 async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload ATTOM CSV property data"""
+    """Upload ATTOM CSV property data - OPTIMIZED for bulk insert"""
     if not file.filename.endswith('.csv'):
         raise HTTPException(400, "File must be CSV format")
 
@@ -26,42 +26,63 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
         contents = await file.read()
         df = pd.read_csv(io.BytesIO(contents))
 
-        properties_added = 0
+        # Build list of all ATTOM IDs from CSV
+        csv_attom_ids = []
+        for idx, row in df.iterrows():
+            attom_id = str(row.get('ATTOM ID', row.get('id', f"CSV_{idx}")))
+            csv_attom_ids.append(attom_id)
 
-        # Parse ATTOM data (adjust column names based on your CSV)
-        for _, row in df.iterrows():
-            property_data = Property(
-                attom_id=str(row.get('ATTOM ID', row.get('id', f"CSV_{properties_added}"))),
-                address=row.get('Address', row.get('address', '')),
-                city=row.get('City', row.get('city', '')),
-                state=row.get('State', row.get('state', '')),
-                zip_code=str(row.get('Zip', row.get('zip_code', ''))),
-                county=row.get('County', row.get('county', '')),
-                bedrooms=int(row.get('Bedrooms', row.get('bedrooms', 0))) if pd.notna(row.get('Bedrooms', row.get('bedrooms'))) else None,
-                bathrooms=float(row.get('Bathrooms', row.get('bathrooms', 0))) if pd.notna(row.get('Bathrooms', row.get('bathrooms'))) else None,
-                square_feet=int(row.get('SqFt', row.get('square_feet', 0))) if pd.notna(row.get('SqFt', row.get('square_feet'))) else None,
-                lot_size=float(row.get('LotSize', row.get('lot_size', 0))) if pd.notna(row.get('LotSize', row.get('lot_size'))) else None,
-                year_built=int(row.get('YearBuilt', row.get('year_built', 0))) if pd.notna(row.get('YearBuilt', row.get('year_built'))) else None,
-                property_type=row.get('PropertyType', row.get('property_type', '')),
-                avm=float(row.get('AVM', row.get('avm', 0))) if pd.notna(row.get('AVM', row.get('avm'))) else None,
-                assessed_value=float(row.get('AssessedValue', row.get('assessed_value', 0))) if pd.notna(row.get('AssessedValue', row.get('assessed_value'))) else None,
-                market_value=float(row.get('MarketValue', row.get('market_value', 0))) if pd.notna(row.get('MarketValue', row.get('market_value'))) else None,
-                raw_data=row.to_dict()
-            )
+        # Single query to get all existing ATTOM IDs (MUCH faster than per-row queries!)
+        existing_ids = set(
+            db.query(Property.attom_id)
+            .filter(Property.attom_id.in_(csv_attom_ids))
+            .all()
+        )
+        existing_ids = {attom_id[0] for attom_id in existing_ids}  # Convert to set of strings
 
-            # Check if property already exists
-            existing = db.query(Property).filter(Property.attom_id == property_data.attom_id).first()
-            if not existing:
-                db.add(property_data)
-                properties_added += 1
+        # Build list of properties to insert (skip existing)
+        properties_to_insert = []
+        for idx, row in df.iterrows():
+            attom_id = str(row.get('ATTOM ID', row.get('id', f"CSV_{idx}")))
 
-        db.commit()
+            # Skip if already exists
+            if attom_id in existing_ids:
+                continue
+
+            # Build property dict for bulk insert
+            property_dict = {
+                'attom_id': attom_id,
+                'address': row.get('Address', row.get('address', '')),
+                'city': row.get('City', row.get('city', '')),
+                'state': row.get('State', row.get('state', '')),
+                'zip_code': str(row.get('Zip', row.get('zip_code', ''))),
+                'county': row.get('County', row.get('county', '')),
+                'bedrooms': int(row.get('Bedrooms', row.get('bedrooms', 0))) if pd.notna(row.get('Bedrooms', row.get('bedrooms'))) else None,
+                'bathrooms': float(row.get('Bathrooms', row.get('bathrooms', 0))) if pd.notna(row.get('Bathrooms', row.get('bathrooms'))) else None,
+                'square_feet': int(row.get('SqFt', row.get('square_feet', 0))) if pd.notna(row.get('SqFt', row.get('square_feet'))) else None,
+                'lot_size': float(row.get('LotSize', row.get('lot_size', 0))) if pd.notna(row.get('LotSize', row.get('lot_size'))) else None,
+                'year_built': int(row.get('YearBuilt', row.get('year_built', 0))) if pd.notna(row.get('YearBuilt', row.get('year_built'))) else None,
+                'property_type': row.get('PropertyType', row.get('property_type', '')),
+                'avm': float(row.get('AVM', row.get('avm', 0))) if pd.notna(row.get('AVM', row.get('avm'))) else None,
+                'assessed_value': float(row.get('AssessedValue', row.get('assessed_value', 0))) if pd.notna(row.get('AssessedValue', row.get('assessed_value'))) else None,
+                'market_value': float(row.get('MarketValue', row.get('market_value', 0))) if pd.notna(row.get('MarketValue', row.get('market_value'))) else None,
+                'raw_data': row.to_dict()
+            }
+            properties_to_insert.append(property_dict)
+
+        # Bulk insert all properties at once (100x faster!)
+        if properties_to_insert:
+            db.bulk_insert_mappings(Property, properties_to_insert)
+            db.commit()
+
+        properties_added = len(properties_to_insert)
 
         return {
             "status": "success",
             "message": f"Uploaded {properties_added} properties from CSV",
             "total_rows": len(df),
-            "properties_added": properties_added
+            "properties_added": properties_added,
+            "skipped_existing": len(df) - properties_added
         }
 
     except Exception as e:
@@ -70,7 +91,7 @@ async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)
 
 @router.post("/geojson")
 async def upload_geojson(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload GeoJSON property data"""
+    """Upload GeoJSON property data - OPTIMIZED for bulk insert"""
     if not file.filename.endswith(('.geojson', '.json')):
         raise HTTPException(400, "File must be GeoJSON/JSON format")
 
@@ -78,47 +99,69 @@ async def upload_geojson(file: UploadFile = File(...), db: Session = Depends(get
         contents = await file.read()
         geojson_data = json.loads(contents)
 
-        properties_added = 0
-
         # Parse GeoJSON features
         features = geojson_data.get('features', [])
 
-        for feature in features:
+        # Build list of all ATTOM IDs from GeoJSON
+        geojson_attom_ids = []
+        for idx, feature in enumerate(features):
+            props = feature.get('properties', {})
+            attom_id = str(props.get('ATTOM ID', props.get('id', f"GEO_{idx}")))
+            geojson_attom_ids.append(attom_id)
+
+        # Single query to get all existing ATTOM IDs
+        existing_ids = set(
+            db.query(Property.attom_id)
+            .filter(Property.attom_id.in_(geojson_attom_ids))
+            .all()
+        )
+        existing_ids = {attom_id[0] for attom_id in existing_ids}
+
+        # Build list of properties to insert (skip existing)
+        properties_to_insert = []
+        for idx, feature in enumerate(features):
             props = feature.get('properties', {})
             geometry = feature.get('geometry', {})
+            attom_id = str(props.get('ATTOM ID', props.get('id', f"GEO_{idx}")))
 
-            property_data = Property(
-                attom_id=str(props.get('ATTOM ID', props.get('id', f"GEO_{properties_added}"))),
-                address=props.get('Address', props.get('address', '')),
-                city=props.get('City', props.get('city', '')),
-                state=props.get('State', props.get('state', '')),
-                zip_code=str(props.get('Zip', props.get('zip_code', ''))),
-                county=props.get('County', props.get('county', '')),
-                bedrooms=props.get('Bedrooms', props.get('bedrooms')),
-                bathrooms=props.get('Bathrooms', props.get('bathrooms')),
-                square_feet=props.get('SqFt', props.get('square_feet')),
-                lot_size=props.get('LotSize', props.get('lot_size')),
-                year_built=props.get('YearBuilt', props.get('year_built')),
-                property_type=props.get('PropertyType', props.get('property_type')),
-                avm=props.get('AVM', props.get('avm')),
-                assessed_value=props.get('AssessedValue', props.get('assessed_value')),
-                market_value=props.get('MarketValue', props.get('market_value')),
-                geometry=geometry,
-                raw_data=props
-            )
+            # Skip if already exists
+            if attom_id in existing_ids:
+                continue
 
-            existing = db.query(Property).filter(Property.attom_id == property_data.attom_id).first()
-            if not existing:
-                db.add(property_data)
-                properties_added += 1
+            property_dict = {
+                'attom_id': attom_id,
+                'address': props.get('Address', props.get('address', '')),
+                'city': props.get('City', props.get('city', '')),
+                'state': props.get('State', props.get('state', '')),
+                'zip_code': str(props.get('Zip', props.get('zip_code', ''))),
+                'county': props.get('County', props.get('county', '')),
+                'bedrooms': props.get('Bedrooms', props.get('bedrooms')),
+                'bathrooms': props.get('Bathrooms', props.get('bathrooms')),
+                'square_feet': props.get('SqFt', props.get('square_feet')),
+                'lot_size': props.get('LotSize', props.get('lot_size')),
+                'year_built': props.get('YearBuilt', props.get('year_built')),
+                'property_type': props.get('PropertyType', props.get('property_type')),
+                'avm': props.get('AVM', props.get('avm')),
+                'assessed_value': props.get('AssessedValue', props.get('assessed_value')),
+                'market_value': props.get('MarketValue', props.get('market_value')),
+                'geometry': geometry,
+                'raw_data': props
+            }
+            properties_to_insert.append(property_dict)
 
-        db.commit()
+        # Bulk insert all properties at once
+        if properties_to_insert:
+            db.bulk_insert_mappings(Property, properties_to_insert)
+            db.commit()
+
+        properties_added = len(properties_to_insert)
 
         return {
             "status": "success",
             "message": f"Uploaded {properties_added} properties from GeoJSON",
             "total_features": len(features),
-            "properties_added": properties_added
+            "properties_added": properties_added,
+            "skipped_existing": len(features) - properties_added
         }
 
     except Exception as e:
@@ -127,7 +170,7 @@ async def upload_geojson(file: UploadFile = File(...), db: Session = Depends(get
 
 @router.post("/excel")
 async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """Upload Excel (.xlsx) property data"""
+    """Upload Excel (.xlsx) property data - OPTIMIZED for bulk insert"""
     if not file.filename.endswith(('.xlsx', '.xls')):
         raise HTTPException(400, "File must be Excel format (.xlsx or .xls)")
 
@@ -135,35 +178,57 @@ async def upload_excel(file: UploadFile = File(...), db: Session = Depends(get_d
         contents = await file.read()
         df = pd.read_excel(io.BytesIO(contents))
 
-        properties_added = 0
+        # Build list of all ATTOM IDs from Excel
+        excel_attom_ids = []
+        for idx, row in df.iterrows():
+            attom_id = str(row.get('ATTOM ID', row.get('id', f"XLS_{idx}")))
+            excel_attom_ids.append(attom_id)
 
-        for _, row in df.iterrows():
-            property_data = Property(
-                attom_id=str(row.get('ATTOM ID', row.get('id', f"XLS_{properties_added}"))),
-                address=row.get('Address', row.get('address', '')),
-                city=row.get('City', row.get('city', '')),
-                state=row.get('State', row.get('state', '')),
-                zip_code=str(row.get('Zip', row.get('zip_code', ''))),
-                county=row.get('County', row.get('county', '')),
-                bedrooms=int(row.get('Bedrooms', row.get('bedrooms', 0))) if pd.notna(row.get('Bedrooms', row.get('bedrooms'))) else None,
-                bathrooms=float(row.get('Bathrooms', row.get('bathrooms', 0))) if pd.notna(row.get('Bathrooms', row.get('bathrooms'))) else None,
-                square_feet=int(row.get('SqFt', row.get('square_feet', 0))) if pd.notna(row.get('SqFt', row.get('square_feet'))) else None,
-                avm=float(row.get('AVM', row.get('avm', 0))) if pd.notna(row.get('AVM', row.get('avm'))) else None,
-                raw_data=row.to_dict()
-            )
+        # Single query to get all existing ATTOM IDs
+        existing_ids = set(
+            db.query(Property.attom_id)
+            .filter(Property.attom_id.in_(excel_attom_ids))
+            .all()
+        )
+        existing_ids = {attom_id[0] for attom_id in existing_ids}
 
-            existing = db.query(Property).filter(Property.attom_id == property_data.attom_id).first()
-            if not existing:
-                db.add(property_data)
-                properties_added += 1
+        # Build list of properties to insert (skip existing)
+        properties_to_insert = []
+        for idx, row in df.iterrows():
+            attom_id = str(row.get('ATTOM ID', row.get('id', f"XLS_{idx}")))
 
-        db.commit()
+            # Skip if already exists
+            if attom_id in existing_ids:
+                continue
+
+            property_dict = {
+                'attom_id': attom_id,
+                'address': row.get('Address', row.get('address', '')),
+                'city': row.get('City', row.get('city', '')),
+                'state': row.get('State', row.get('state', '')),
+                'zip_code': str(row.get('Zip', row.get('zip_code', ''))),
+                'county': row.get('County', row.get('county', '')),
+                'bedrooms': int(row.get('Bedrooms', row.get('bedrooms', 0))) if pd.notna(row.get('Bedrooms', row.get('bedrooms'))) else None,
+                'bathrooms': float(row.get('Bathrooms', row.get('bathrooms', 0))) if pd.notna(row.get('Bathrooms', row.get('bathrooms'))) else None,
+                'square_feet': int(row.get('SqFt', row.get('square_feet', 0))) if pd.notna(row.get('SqFt', row.get('square_feet'))) else None,
+                'avm': float(row.get('AVM', row.get('avm', 0))) if pd.notna(row.get('AVM', row.get('avm'))) else None,
+                'raw_data': row.to_dict()
+            }
+            properties_to_insert.append(property_dict)
+
+        # Bulk insert all properties at once
+        if properties_to_insert:
+            db.bulk_insert_mappings(Property, properties_to_insert)
+            db.commit()
+
+        properties_added = len(properties_to_insert)
 
         return {
             "status": "success",
             "message": f"Uploaded {properties_added} properties from Excel",
             "total_rows": len(df),
-            "properties_added": properties_added
+            "properties_added": properties_added,
+            "skipped_existing": len(df) - properties_added
         }
 
     except Exception as e:
