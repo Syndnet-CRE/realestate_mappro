@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Map, Database, Settings, Layers, Search } from 'lucide-react';
+import { Map, Database, Settings, Layers, Search, Upload } from 'lucide-react';
 import axios from 'axios';
+import FileUploadModal from './FileUploadModal';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -8,6 +9,7 @@ const Sidebar = () => {
   const [datasets, setDatasets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
 
   useEffect(() => {
     fetchDatasets();
@@ -77,7 +79,13 @@ const Sidebar = () => {
           <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
             Datasets
           </h3>
-          <Database className="w-4 h-4 text-gray-500" />
+          <button
+            onClick={() => setIsUploadModalOpen(true)}
+            className="p-1.5 rounded-lg hover:bg-gray-800 transition-colors group"
+            title="Upload data"
+          >
+            <Upload className="w-4 h-4 text-gray-500 group-hover:text-teal-400" />
+          </button>
         </div>
 
         {loading ? (
@@ -116,6 +124,15 @@ const Sidebar = () => {
           v1.0.0 · {datasets.length} datasets
         </div>
       </div>
+
+      {/* Upload Modal */}
+      <FileUploadModal
+        isOpen={isUploadModalOpen}
+        onClose={() => setIsUploadModalOpen(false)}
+        onUploadComplete={() => {
+          fetchDatasets(); // Refresh datasets after upload
+        }}
+      />
     </div>
   );
 };
