@@ -18,6 +18,7 @@ from routes.upload import router as upload_router
 from routes.properties import router as properties_router
 from routes.arcgis import router as arcgis_router
 from routes.chat import router as chat_router
+from routes.compat import router as compat_router
 
 # Create FastAPI app
 app = FastAPI(
@@ -45,6 +46,8 @@ app.include_router(upload_router, prefix="/api/upload", tags=["Upload"])
 app.include_router(properties_router, prefix="/api/properties", tags=["Properties"])
 app.include_router(arcgis_router, prefix="/api/arcgis", tags=["ArcGIS"])
 app.include_router(chat_router, prefix="/api/chat", tags=["Chat"])
+# Compatibility routes for frontend (no prefix)
+app.include_router(compat_router, tags=["Compatibility"])
 
 
 @app.on_event("startup")
