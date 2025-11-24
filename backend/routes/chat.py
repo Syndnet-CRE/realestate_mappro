@@ -141,7 +141,7 @@ When analyzing real estate, provide insights on:
             session_id=request.session_id,
             role="user",
             content=request.message,
-            metadata={"include_context": request.include_context}
+            extra_metadata={"include_context": request.include_context}
         )
         db.add(user_msg)
 
@@ -149,7 +149,7 @@ When analyzing real estate, provide insights on:
             session_id=request.session_id,
             role="assistant",
             content=assistant_message,
-            metadata={
+            extra_metadata={
                 "model": "claude-3-5-sonnet-20241022",
                 "tokens": response.usage.output_tokens if hasattr(response, 'usage') else None
             }

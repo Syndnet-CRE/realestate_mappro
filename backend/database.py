@@ -65,7 +65,7 @@ class Document(Base):
     text_content = Column(Text)  # Extracted text
     upload_date = Column(DateTime, default=datetime.utcnow)
     file_size = Column(Integer)
-    metadata = Column(JSON)
+    extra_metadata = Column(JSON)
 
 
 # Chat history model
@@ -77,7 +77,7 @@ class ChatMessage(Base):
     role = Column(String)  # user, assistant
     content = Column(Text)
     timestamp = Column(DateTime, default=datetime.utcnow)
-    metadata = Column(JSON)
+    extra_metadata = Column(JSON)
 
 
 # Database dependency for FastAPI

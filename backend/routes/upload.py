@@ -192,7 +192,7 @@ async def upload_pdf(file: UploadFile = File(...), db: Session = Depends(get_db)
             file_type="pdf",
             text_content=text_content,
             file_size=len(contents),
-            metadata={
+            extra_metadata={
                 "num_pages": len(pdf_reader.pages),
                 "note": "Text extracted - semantic search disabled (lightweight mode)"
             }
