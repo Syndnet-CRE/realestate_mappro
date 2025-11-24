@@ -6,3 +6,8 @@ package-lock.json
 .vscode/
 .idea/
 vite.config.*s.*
+
+# Backend environment
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
